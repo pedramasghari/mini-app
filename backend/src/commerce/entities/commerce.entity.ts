@@ -39,7 +39,7 @@ export class ActivationGuide {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index({ unique: true }) @Column('uuid') productId!: string;
   @Column({ length: 160 }) title!: string;
-  @Column({ length: 500, nullable: true }) description!: string | null;
+  @Column({ type: 'varchar', length: 500, nullable: true }) description!: string | null;
   @Column({ default: true }) active!: boolean;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
