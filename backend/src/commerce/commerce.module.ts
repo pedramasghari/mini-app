@@ -3,21 +3,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { WalletsModule } from '../wallets/wallets.module';
 import { User } from '../users/entities/user.entity';
-import {
-  ActivationGuide, ActivationStep, Order, OrderInput, PaymentMethod,
-  PaymentRequest, Product, Service, WalletTransaction,
-} from './entities/commerce.entity';
+import { ActivationGuide, ActivationProgress, ActivationStep, Order, OrderInput, PaymentMethod, PaymentRequest, Product, Service, WalletTransaction } from './entities/commerce.entity';
 import { CommerceService } from './commerce.service';
 import { CommerceController } from './commerce.controller';
 import { AdminBotService } from './admin-bot.service';
 
-@Module({
-  imports: [AuthModule, WalletsModule, TypeOrmModule.forFeature([
-    User, Service, Product, ActivationGuide, ActivationStep, Order, OrderInput,
-    PaymentMethod, PaymentRequest, WalletTransaction,
-  ])],
-  controllers: [CommerceController],
-  providers: [CommerceService, AdminBotService],
-  exports: [CommerceService],
-})
+@Module({ imports: [AuthModule, WalletsModule, TypeOrmModule.forFeature([User, Service, Product, ActivationGuide, ActivationProgress, ActivationStep, Order, OrderInput, PaymentMethod, PaymentRequest, WalletTransaction])], controllers: [CommerceController], providers: [CommerceService, AdminBotService], exports: [CommerceService] })
 export class CommerceModule {}
