@@ -5,20 +5,16 @@ import { DatabaseModule } from './database/database.module';
 import { UsersModule } from './users/users.module';
 import { WalletsModule } from './wallets/wallets.module';
 import { AuthModule } from './auth/auth.module';
+import { CommerceModule } from './commerce/commerce.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-    }),
-
+    ConfigModule.forRoot({ isGlobal: true }),
     DatabaseModule,
-
     UsersModule,
-
     WalletsModule,
-
     AuthModule,
+    CommerceModule,
   ],
 })
 export class AppModule {}
