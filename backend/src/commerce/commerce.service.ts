@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, QueryFailedError, Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Wallet } from '../wallets/entities/wallet.entity';
@@ -38,20 +38,14 @@ export class CommerceService implements OnModuleInit {
       this.steps.create({ guideId: guide.id, position: 5, title: 'Finish setup', content: 'Review the account details, accept Apple’s terms where applicable, and finish the setup.' }),
     ]);
   }
-
   async current(token?: string) { if (!token) throw new UnauthorizedException(); return this.auth.getSession(token); }
   listServices() { return this.services.find({ where: { active: true }, order: { createdAt: 'ASC' } }); }
   listProducts(serviceId?: string) { return this.products.find({ where: serviceId ? { serviceId, active: true } : { active: true }, order: { createdAt: 'ASC' } }); }
   async product(id: string) { const p = await this.products.findOne({ where: { id, active: true } }); if (!p) throw new NotFoundException('Product not found'); return p; }
-  async guide(productId: string) {
-    const guide = await this.guides.findOne({ where: { productId, active: true } });
-    if (!guide) return null;
-    return { ...guide, steps: await this.steps.find({ where: { guideId: guide.id }, order: { position: 'ASC' } }) };
-  }
-
+  async guide(productId: string) { const guide = await this.guides.findOne({ where: { productId, active: true } }); if (!guide) return null; return { ...guide, steps: await this.steps.find({ where: { guideId: guide.id }, order: { position: 'ASC' } }) }; }
   async createOrder(userId: string, productId: string) {
     const product = await this.product(productId);
-    return this.dataSource.transaction(async (manager) => {
+    return this.dataSource.transaction(async manager => {
       const wallet = await manager.findOne(Wallet, { where: { userId }, lock: { mode: 'pessimistic_write' } });
       if (!wallet) throw new NotFoundException('Wallet not found');
       if (wallet.currency !== product.currency) throw new BadRequestException(`Wallet currency must be ${product.currency}`);
@@ -67,88 +61,29 @@ export class CommerceService implements OnModuleInit {
       return { order, progress, guide };
     });
   }
-
   async orderGuide(userId: string, orderId: string) {
-    const order = await this.orders.findOne({ where: { id: orderId, userId } });
-    if (!order) throw new NotFoundException('Order not found');
-    const product = await this.product(order.productId);
-    const guide = await this.guides.findOne({ where: { productId: product.id, active: true } });
-    if (!guide) throw new NotFoundException('Guide not found');
-    const steps = await this.steps.find({ where: { guideId: guide.id }, order: { position: 'ASC' } });
-    let progress = await this.progress.findOne({ where: { orderId, userId } });
+    const order = await this.orders.findOne({ where: { id: orderId, userId } }); if (!order) throw new NotFoundException('Order not found');
+    const product = await this.product(order.productId); const guide = await this.guides.findOne({ where: { productId: product.id, active: true } }); if (!guide) throw new NotFoundException('Guide not found');
+    const steps = await this.steps.find({ where: { guideId: guide.id }, order: { position: 'ASC' } }); let progress = await this.progress.findOne({ where: { orderId, userId } });
     if (!progress) progress = await this.progress.save(this.progress.create({ orderId, userId, guideId: guide.id, currentStep: 0, completed: false }));
     return { order, product, guide, steps, progress, inputs: await this.inputs.find({ where: { orderId } }) };
   }
-
-  async updateProgress(userId: string, orderId: string, step: number, values?: Record<string, string>) {
-    const data = await this.orderGuide(userId, orderId);
-    if (step < 0 || step > data.steps.length - 1) throw new BadRequestException('Invalid step');
-    if (values) await this.saveInputs(userId, orderId, values);
-    data.progress.currentStep = step;
-    data.progress.completed = step === data.steps.length - 1;
-    return this.progress.save(data.progress);
+  async updateProgress(userId: string, orderId: string, step: number, values?: Record<string, string>) { const data = await this.orderGuide(userId, orderId); if (step < 0 || step > data.steps.length - 1) throw new BadRequestException('Invalid step'); if (values) await this.saveInputs(userId, orderId, values); data.progress.currentStep = step; data.progress.completed = step === data.steps.length - 1; return this.progress.save(data.progress); }
+  async saveInputs(userId: string, orderId: string, values: Record<string, string>) { const order = await this.orders.findOne({ where: { id: orderId, userId } }); if (!order) throw new NotFoundException('Order not found'); await this.inputs.delete({ orderId }); const rows = Object.entries(values).filter(([,value])=>value?.trim()).map(([key,value])=>this.inputs.create({orderId,key,value})); if(rows.length) await this.inputs.save(rows); return {success:true}; }
+  async paymentMethods() { return this.methods.find({ where: { active: true }, select: ['id','type','title','cardNumber','holderName','bankName'] }); }
+  async createPayment(userId:string,amount:string,paymentMethodId:string,receiptPath:string) {
+    if(!/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(amount)||Number(amount)<=0) throw new BadRequestException('Invalid amount');
+    const method=await this.methods.findOne({where:{id:paymentMethodId,active:true,type:'CARD_TRANSFER'}}); if(!method) throw new NotFoundException('Card transfer payment method not found');
+    const pending=await this.payments.findOne({where:{userId,status:'PENDING'}}); if(pending) throw new BadRequestException('PENDING_DEPOSIT_EXISTS');
+    const wallet=await this.dataSource.getRepository(Wallet).findOne({where:{userId}}); if(!wallet) throw new NotFoundException('Wallet not found');
+    try { return await this.payments.save(this.payments.create({userId,paymentMethodId,amount,currency:wallet.currency,receiptPath,status:'PENDING'})); }
+    catch(error) { if(error instanceof QueryFailedError && (error as any).driverError?.code==='23505') throw new BadRequestException('PENDING_DEPOSIT_EXISTS'); throw error; }
   }
-
-  async saveInputs(userId: string, orderId: string, values: Record<string, string>) {
-    const order = await this.orders.findOne({ where: { id: orderId, userId } });
-    if (!order) throw new NotFoundException('Order not found');
-    await this.inputs.delete({ orderId });
-    const rows = Object.entries(values).filter(([, value]) => value?.trim()).map(([key, value]) => this.inputs.create({ orderId, key, value }));
-    if (rows.length) await this.inputs.save(rows);
-    return { success: true };
+  async approvePayment(paymentId:string,reason?:string) {
+    const result=await this.dataSource.transaction(async manager=>{const payment=await manager.findOne(PaymentRequest,{where:{id:paymentId},lock:{mode:'pessimistic_write'}});if(!payment||payment.status!=='PENDING')throw new BadRequestException('Payment is not pending');const wallet=await manager.findOne(Wallet,{where:{userId:payment.userId},lock:{mode:'pessimistic_write'}});if(!wallet)throw new NotFoundException('Wallet not found');const before=Number(wallet.balance),amount=Number(payment.amount);if(!Number.isFinite(amount)||amount<=0)throw new BadRequestException('Invalid payment amount');if(wallet.currency!==payment.currency)throw new BadRequestException('Payment currency mismatch');wallet.balance=(before+amount).toFixed(8);payment.status='APPROVED';payment.adminReason=reason??null;await manager.save(wallet);await manager.save(payment);await manager.save(WalletTransaction,manager.create(WalletTransaction,{userId:payment.userId,walletId:wallet.id,type:'DEPOSIT',amount:payment.amount,balanceBefore:before.toFixed(8),balanceAfter:wallet.balance,currency:wallet.currency,referenceType:'PAYMENT_REQUEST',referenceId:payment.id,description:'Card transfer deposit'}));return{payment,wallet:{balance:wallet.balance,currency:wallet.currency}};});
+    const online=(await this.notifications.create(result.payment.userId,{type:'DEPOSIT_APPROVED',title:'Wallet charged successfully',message:`Your wallet was credited with ${result.payment.amount} ${result.payment.currency}.`,data:{paymentId:result.payment.id,amount:result.payment.amount,status:result.payment.status}})).online;
+    this.notifications.emit(result.payment.userId,{type:'wallet.updated',wallet:result.wallet,payment:{id:result.payment.id,status:'APPROVED',amount:result.payment.amount}});return{...result.payment,wallet:result.wallet,online};
   }
-
-  async paymentMethods() {
-    return this.methods.find({ where: { active: true }, select: ['id', 'type', 'title', 'cardNumber', 'holderName', 'bankName'] });
-  }
-
-  async createPayment(userId: string, amount: string, paymentMethodId: string, receiptPath: string) {
-    if (!/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(amount) || Number(amount) <= 0) throw new BadRequestException('Invalid amount');
-    const method = await this.methods.findOne({ where: { id: paymentMethodId, active: true, type: 'CARD_TRANSFER' } });
-    if (!method) throw new NotFoundException('Card transfer payment method not found');
-    const pending = await this.payments.findOne({ where: { userId, status: 'PENDING' } });
-    if (pending) throw new BadRequestException('PENDING_DEPOSIT_EXISTS');
-    const wallet = await this.dataSource.getRepository(Wallet).findOne({ where: { userId } });
-    if (!wallet) throw new NotFoundException('Wallet not found');
-    return this.payments.save(this.payments.create({ userId, paymentMethodId, amount, currency: wallet.currency, receiptPath, status: 'PENDING' }));
-  }
-
-  async approvePayment(paymentId: string, reason?: string) {
-    const result = await this.dataSource.transaction(async (manager) => {
-      const payment = await manager.findOne(PaymentRequest, { where: { id: paymentId }, lock: { mode: 'pessimistic_write' } });
-      if (!payment || payment.status !== 'PENDING') throw new BadRequestException('Payment is not pending');
-      const wallet = await manager.findOne(Wallet, { where: { userId: payment.userId }, lock: { mode: 'pessimistic_write' } });
-      if (!wallet) throw new NotFoundException('Wallet not found');
-      const before = Number(wallet.balance), amount = Number(payment.amount);
-      if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Invalid payment amount');
-      if (wallet.currency !== payment.currency) throw new BadRequestException('Payment currency mismatch');
-      wallet.balance = (before + amount).toFixed(8);
-      payment.status = 'APPROVED';
-      payment.adminReason = reason ?? null;
-      await manager.save(wallet);
-      await manager.save(payment);
-      await manager.save(WalletTransaction, manager.create(WalletTransaction, { userId: payment.userId, walletId: wallet.id, type: 'DEPOSIT', amount: payment.amount, balanceBefore: before.toFixed(8), balanceAfter: wallet.balance, currency: wallet.currency, referenceType: 'PAYMENT_REQUEST', referenceId: payment.id, description: 'Card transfer deposit' }));
-      return { payment, wallet: { balance: wallet.balance, currency: wallet.currency } };
-    });
-    const online = (await this.notifications.create(result.payment.userId, { type: 'DEPOSIT_APPROVED', title: 'Wallet charged successfully', message: `Your wallet was credited with ${result.payment.amount} ${result.payment.currency}.`, data: { paymentId: result.payment.id, amount: result.payment.amount, status: result.payment.status } })).online;
-    this.notifications.emit(result.payment.userId, { type: 'wallet.updated', wallet: result.wallet, payment: { id: result.payment.id, status: 'APPROVED', amount: result.payment.amount } });
-    return { ...result.payment, wallet: result.wallet, online };
-  }
-
-  async rejectPayment(paymentId: string, reason: string) {
-    const result = await this.dataSource.transaction(async (manager) => {
-      const payment = await manager.findOne(PaymentRequest, { where: { id: paymentId }, lock: { mode: 'pessimistic_write' } });
-      if (!payment || payment.status !== 'PENDING') throw new BadRequestException('Payment is not pending');
-      payment.status = 'REJECTED';
-      payment.adminReason = reason?.trim() || 'Rejected by admin';
-      return manager.save(payment);
-    });
-    const online = (await this.notifications.create(result.userId, { type: 'DEPOSIT_REJECTED', title: 'Deposit was not approved', message: result.adminReason ?? 'Your deposit was rejected.', data: { paymentId: result.id, amount: result.amount, status: result.status, reason: result.adminReason } })).online;
-    this.notifications.emit(result.userId, { type: 'payment.updated', payment: { id: result.id, status: 'REJECTED', amount: result.amount, reason: result.adminReason } });
-    return { ...result, online };
-  }
-
-  async pendingPayments() { return this.payments.find({ where: { status: 'PENDING' }, order: { createdAt: 'ASC' }, take: 50 }); }
-  async myOrders(userId: string) { return this.orders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 50 }); }
-  async myTransactions(userId: string) { return this.transactions.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 100 }); }
+  async rejectPayment(paymentId:string,reason:string){const result=await this.dataSource.transaction(async manager=>{const payment=await manager.findOne(PaymentRequest,{where:{id:paymentId},lock:{mode:'pessimistic_write'}});if(!payment||payment.status!=='PENDING')throw new BadRequestException('Payment is not pending');payment.status='REJECTED';payment.adminReason=reason?.trim()||'Rejected by admin';return manager.save(payment);});const online=(await this.notifications.create(result.userId,{type:'DEPOSIT_REJECTED',title:'Deposit was not approved',message:result.adminReason??'Your deposit was rejected.',data:{paymentId:result.id,amount:result.amount,status:result.status,reason:result.adminReason}})).online;this.notifications.emit(result.userId,{type:'payment.updated',payment:{id:result.id,status:'REJECTED',amount:result.amount,reason:result.adminReason}});return{...result,online};}
+  async pendingPayments(){return this.payments.find({where:{status:'PENDING'},order:{createdAt:'ASC'},take:50});} async myOrders(userId:string){return this.orders.find({where:{userId},order:{createdAt:'DESC'},take:50});} async myTransactions(userId:string){return this.transactions.find({where:{userId},order:{createdAt:'DESC'},take:100});}
 }
