@@ -12,6 +12,34 @@ pnpm start:dev
 
 PostgreSQL is configured through `DATABASE_*` variables.
 
+## Wallet charging
+
+Customers can charge the wallet with **Card-to-card transfer**. Online payment is represented as a disabled/coming-soon method and cannot create a payment request yet.
+
+Flow:
+
+1. Customer chooses Card-to-card.
+2. Enters the requested amount.
+3. Active cards configured by the admin are displayed.
+4. Customer completes the bank transfer.
+5. Customer uploads an image/PDF receipt.
+6. `PaymentRequest` is created as `PENDING`.
+7. Admin Bot receives the request and receipt with **Approve / Reject** buttons.
+8. Approve atomically credits the wallet and creates a `WalletTransaction`.
+9. Reject requires a reason and never changes the wallet.
+10. The customer receives a persistent notification. If the Mini App is online the notification and wallet balance update are pushed through SSE immediately; otherwise the Admin Bot sends a Telegram message.
+
+Only one pending deposit is allowed per user. This is protected both by an application check and a PostgreSQL partial unique index, while approval/rejection use pessimistic row locks to prevent double processing and wallet race conditions.
+
+## Realtime notifications
+
+- `GET /notifications` — latest notifications
+- `GET /notifications/unread-count` — unread count
+- `POST /notifications/:id/read` — mark notification read
+- `GET /notifications/stream` — authenticated Server-Sent Events stream
+
+The frontend connects to `/api/notifications/stream` through the existing Next.js rewrite. Wallet balance and notification state update without a refresh.
+
 ## Commerce API
 
 - `GET /services`
@@ -29,7 +57,7 @@ The initial database seed creates an Apple ID service, an Apple ID setup product
 
 ## Admin Telegram Bot
 
-The admin bot is intentionally separate from the customer bot. Configure:
+Configure:
 
 ```env
 ADMIN_BOT_TOKEN=...
@@ -42,7 +70,7 @@ Supported commands:
 - `/cards` — active card-to-card payment methods
 - `/addcard` — guided card creation
 
-New payment requests are pushed to authorized admins with an inline **Approve / Reject** keyboard. Rejecting requires a reason. Receipts are sent to the admin as Telegram documents.
+New payment requests are pushed to authorized admins with an inline **Approve / Reject** keyboard. Rejecting requires a reason. Receipts are sent to the admin as Telegram documents. After a decision, the customer is notified in-app when online or through Telegram when offline.
 
 Only Telegram numeric IDs listed in `ADMIN_TELEGRAM_IDS` can operate the admin bot.
 
