@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
-    'footage-module-encoding-privileges.trycloudflare.com',
+    'smoking-million-mixed-entered.trycloudflare.com',
   ],
   rewrites: async () => [
     {
