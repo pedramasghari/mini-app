@@ -7,7 +7,6 @@ import { fa } from '@/lib/api';
 import DepositModal from './DepositModal';
 import ServiceCatalog from './ServiceCatalog';
 import { initials } from '@/lib/helper';
-import Header from '../header/header';
 
 export default function PanelShell() {
   const { me } = usePanel();
@@ -24,12 +23,7 @@ export default function PanelShell() {
   return (
     <main dir="rtl" className="min-h-[100dvh] w-full max-w-[100vw] overflow-x-hidden bg-[#070b14] text-white">
       <div className="mx-auto w-full max-w-2xl px-3 pb-24 pt-3 sm:px-5 sm:pt-5">
-        <Header
-          onDeposit={() => setDeposit(true)}
-          onWithdraw={() => go('/panel/withdraw')}
-          onTransactions={() => go('/panel/transactions')}
-          onLogout={() => go('/logout')}
-        />
+        
 
         <section className="min-w-0 overflow-hidden rounded-[26px] border border-white/10 bg-gradient-to-br from-cyan-400/20 to-violet-500/10 p-4 sm:rounded-[30px] sm:p-5">
           <div className="flex min-w-0 items-center gap-3 sm:gap-4">

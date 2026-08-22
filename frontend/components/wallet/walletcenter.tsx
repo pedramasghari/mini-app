@@ -42,7 +42,6 @@ export function WalletCenter({ balance = 0, currency = 'تومان', open, onOpe
     <div ref={ref} className="relative">
       <button type="button" aria-label="کیف پول" aria-expanded={open} aria-haspopup="menu" onClick={() => onOpenChange(!open)} className={`relative grid h-10 w-10 place-items-center rounded-xl border transition active:scale-95 sm:h-11 sm:w-11 sm:rounded-2xl ${open ? 'border-cyan-300/30 bg-cyan-300/10 text-cyan-200' : 'border-white/10 bg-white/[.05] text-white/80 hover:bg-white/[.09]'}`}>
         <WalletMinimal size={20} strokeWidth={1.8} />
-        {Number(balance) > 0 && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#070b14] bg-emerald-400" />}
       </button>
 
       {open && (

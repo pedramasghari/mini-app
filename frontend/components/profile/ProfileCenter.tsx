@@ -52,7 +52,7 @@ export default function ProfileCenter({ user, realtime, open, onOpenChange, onLo
   };
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative z-20">
       <button
         type="button"
         aria-label="منوی پروفایل"
@@ -73,7 +73,7 @@ export default function ProfileCenter({ user, realtime, open, onOpenChange, onLo
       </button>
 
       {open && (
-        <div role="menu" className="absolute left-0 top-[calc(100%+10px)] z-50 w-[min(19rem,calc(100vw-1.5rem))] overflow-hidden rounded-[26px] border border-white/10 bg-[#111827]/98 p-2 shadow-2xl backdrop-blur-2xl sm:left-auto sm:right-0 sm:w-80">
+        <div role="menu" className="absolute left-0 top-[calc(100%+10px)] z-60 bg-black backdrop-blur-xl w-[min(19rem,calc(100vw-1.5rem))] overflow-hidden rounded-[26px] border border-white/10 bg-[#111827]/98 p-2 shadow-2xl sm:left-auto sm:right-0 sm:w-80">
           <div className="rounded-2xl bg-white/[.04] p-3">
             <div className="flex items-center gap-3">
               <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-white/10 text-cyan-200">
@@ -87,11 +87,11 @@ export default function ProfileCenter({ user, realtime, open, onOpenChange, onLo
             </div>
           </div>
 
-          <div className="mt-2 space-y-1">
-            <button type="button" role="menuitem" onClick={() => go('/panel/profile')} className="menu-item"><UserRound size={17} /> پروفایل من</button>
-            <button type="button" role="menuitem" onClick={() => go('/panel/orders')} className="menu-item"><ClipboardList size={17} /> سفارش‌های من</button>
-            <button type="button" role="menuitem" onClick={() => go('/panel/notifications')} className="menu-item"><Bell size={17} /> اعلان‌ها</button>
-            <button type="button" role="menuitem" onClick={() => go('/panel/settings')} className="menu-item"><Settings size={17} /> تنظیمات</button>
+          <div className="flex flex-col mt-2 space-y-1">
+            <button type="button" role="menuitem" onClick={() => go('/panel/profile')} className="menu-item border-b-1 m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><UserRound size={17} /><span> پروفایل من</span></button>
+            <button type="button" role="menuitem" onClick={() => go('/panel/orders')} className="menu-item border-b-1 m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><ClipboardList size={17} /><span> سفارش‌های من</span></button>
+            <button type="button" role="menuitem" onClick={() => go('/panel/notifications')} className="menu-item border-b-1 m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><Bell size={17} /><span>اعلان‌ها</span> </button>
+            <button type="button" role="menuitem" onClick={() => go('/panel/settings')} className="menu-item border-b-1 m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><Settings size={17} /><span> تنظیمات</span></button>
           </div>
 
           <div className="my-2 border-t border-white/10" />
