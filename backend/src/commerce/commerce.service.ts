@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service';
@@ -9,7 +9,7 @@ import {
 } from './entities/commerce.entity';
 
 @Injectable()
-export class CommerceService {
+export class CommerceService implements OnModuleInit {
   constructor(
     @InjectRepository(Service) private services: Repository<Service>,
     @InjectRepository(Product) private products: Repository<Product>,
@@ -24,72 +24,32 @@ export class CommerceService {
     private auth: AuthService,
   ) {}
 
-  async current(token?: string) {
-    if (!token) throw new UnauthorizedException();
-    return this.auth.getSession(token);
+  async onModuleInit() {
+    const exists = await this.services.findOne({ where: { slug: 'apple-id' } });
+    if (exists) return;
+    const service = await this.services.save(this.services.create({ slug: 'apple-id', title: 'Apple ID', description: 'Guided Apple account setup service.', icon: 'apple', active: true }));
+    const product = await this.products.save(this.products.create({ serviceId: service.id, title: 'Apple ID Setup', description: 'Step-by-step guidance for setting up your own Apple Account.', price: '9.99', currency: 'USD', icon: 'apple', active: true, requiresGuide: true }));
+    const guide = await this.guides.save(this.guides.create({ productId: product.id, title: 'Apple Account Setup Guide', description: 'Follow each step in order and use your own account information.', active: true }));
+    await this.steps.save([
+      this.steps.create({ guideId: guide.id, position: 1, title: 'Prepare your information', content: 'Have an email address you control and the information required by Apple ready before continuing.' }),
+      this.steps.create({ guideId: guide.id, position: 2, title: 'Start Apple Account setup', content: 'Open Apple’s official account setup flow and follow the on-screen instructions.' }),
+      this.steps.create({ guideId: guide.id, position: 3, title: 'Enter your details', content: 'Enter your own name, date of birth, email address and a strong password when requested.', requiresInput: true, inputKey: 'email', inputLabel: 'Email address' }),
+      this.steps.create({ guideId: guide.id, position: 4, title: 'Complete verification', content: 'Complete any verification Apple requests using verification methods available to you.' }),
+      this.steps.create({ guideId: guide.id, position: 5, title: 'Finish setup', content: 'Review the account details, accept Apple’s terms where applicable, and finish the setup.' }),
+    ]);
   }
 
+  async current(token?: string) { if (!token) throw new UnauthorizedException(); return this.auth.getSession(token); }
   listServices() { return this.services.find({ where: { active: true }, order: { createdAt: 'ASC' } }); }
   listProducts(serviceId?: string) { return this.products.find({ where: serviceId ? { serviceId, active: true } : { active: true }, order: { createdAt: 'ASC' } }); }
   async product(id: string) { const p = await this.products.findOne({ where: { id, active: true } }); if (!p) throw new NotFoundException('Product not found'); return p; }
-
-  async guide(productId: string) {
-    const guide = await this.guides.findOne({ where: { productId, active: true } });
-    if (!guide) return null;
-    const steps = await this.steps.find({ where: { guideId: guide.id }, order: { position: 'ASC' } });
-    return { ...guide, steps };
-  }
-
-  async createOrder(userId: string, productId: string) {
-    const product = await this.product(productId);
-    return this.orders.save(this.orders.create({ userId, productId, amount: product.price, currency: product.currency }));
-  }
-
-  async saveInputs(userId: string, orderId: string, values: Record<string, string>) {
-    const order = await this.orders.findOne({ where: { id: orderId, userId } });
-    if (!order) throw new NotFoundException('Order not found');
-    await this.inputs.delete({ orderId });
-    const rows = Object.entries(values).filter(([, value]) => value?.trim()).map(([key, value]) => this.inputs.create({ orderId, key, value }));
-    if (rows.length) await this.inputs.save(rows);
-    return { success: true };
-  }
-
+  async guide(productId: string) { const guide = await this.guides.findOne({ where: { productId, active: true } }); if (!guide) return null; const steps = await this.steps.find({ where: { guideId: guide.id }, order: { position: 'ASC' } }); return { ...guide, steps }; }
+  async createOrder(userId: string, productId: string) { const product = await this.product(productId); return this.orders.save(this.orders.create({ userId, productId, amount: product.price, currency: product.currency })); }
+  async saveInputs(userId: string, orderId: string, values: Record<string, string>) { const order = await this.orders.findOne({ where: { id: orderId, userId } }); if (!order) throw new NotFoundException('Order not found'); await this.inputs.delete({ orderId }); const rows = Object.entries(values).filter(([, value]) => value?.trim()).map(([key, value]) => this.inputs.create({ orderId, key, value })); if (rows.length) await this.inputs.save(rows); return { success: true }; }
   async paymentMethods() { return this.methods.find({ where: { active: true }, select: ['id', 'type', 'title', 'cardNumber', 'holderName', 'bankName'] }); }
-
-  async createPayment(userId: string, amount: string, paymentMethodId: string, receiptPath: string) {
-    if (!/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(amount) || Number(amount) <= 0) throw new BadRequestException('Invalid amount');
-    const method = await this.methods.findOne({ where: { id: paymentMethodId, active: true } });
-    if (!method) throw new NotFoundException('Payment method not found');
-    return this.payments.save(this.payments.create({ userId, paymentMethodId, amount, receiptPath }));
-  }
-
-  async approvePayment(paymentId: string, reason?: string) {
-    return this.dataSource.transaction(async manager => {
-      const payment = await manager.findOne(PaymentRequest, { where: { id: paymentId } });
-      if (!payment || payment.status !== 'PENDING') throw new BadRequestException('Payment is not pending');
-      const wallet = await manager.findOne(Wallet, { where: { userId: payment.userId }, lock: { mode: 'pessimistic_write' } });
-      if (!wallet) throw new NotFoundException('Wallet not found');
-      const before = Number(wallet.balance);
-      const after = before + Number(payment.amount);
-      wallet.balance = after.toFixed(8);
-      payment.status = 'APPROVED'; payment.adminReason = reason ?? null;
-      await manager.save(wallet); await manager.save(payment);
-      await manager.save(WalletTransaction, manager.create(WalletTransaction, {
-        userId: payment.userId, walletId: wallet.id, type: 'DEPOSIT', amount: payment.amount,
-        balanceBefore: before.toFixed(8), balanceAfter: wallet.balance, currency: payment.currency,
-        referenceType: 'PAYMENT_REQUEST', referenceId: payment.id, description: 'Card transfer deposit',
-      }));
-      return payment;
-    });
-  }
-
-  async rejectPayment(paymentId: string, reason: string) {
-    const payment = await this.payments.findOne({ where: { id: paymentId } });
-    if (!payment || payment.status !== 'PENDING') throw new BadRequestException('Payment is not pending');
-    payment.status = 'REJECTED'; payment.adminReason = reason || 'Rejected by admin';
-    return this.payments.save(payment);
-  }
-
+  async createPayment(userId: string, amount: string, paymentMethodId: string, receiptPath: string) { if (!/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(amount) || Number(amount) <= 0) throw new BadRequestException('Invalid amount'); const method = await this.methods.findOne({ where: { id: paymentMethodId, active: true } }); if (!method) throw new NotFoundException('Payment method not found'); return this.payments.save(this.payments.create({ userId, paymentMethodId, amount, receiptPath })); }
+  async approvePayment(paymentId: string, reason?: string) { return this.dataSource.transaction(async manager => { const payment = await manager.findOne(PaymentRequest, { where: { id: paymentId } }); if (!payment || payment.status !== 'PENDING') throw new BadRequestException('Payment is not pending'); const wallet = await manager.findOne(Wallet, { where: { userId: payment.userId }, lock: { mode: 'pessimistic_write' } }); if (!wallet) throw new NotFoundException('Wallet not found'); const before = Number(wallet.balance); const after = before + Number(payment.amount); wallet.balance = after.toFixed(8); payment.status = 'APPROVED'; payment.adminReason = reason ?? null; await manager.save(wallet); await manager.save(payment); await manager.save(WalletTransaction, manager.create(WalletTransaction, { userId: payment.userId, walletId: wallet.id, type: 'DEPOSIT', amount: payment.amount, balanceBefore: before.toFixed(8), balanceAfter: wallet.balance, currency: payment.currency, referenceType: 'PAYMENT_REQUEST', referenceId: payment.id, description: 'Card transfer deposit' })); return payment; }); }
+  async rejectPayment(paymentId: string, reason: string) { const payment = await this.payments.findOne({ where: { id: paymentId } }); if (!payment || payment.status !== 'PENDING') throw new BadRequestException('Payment is not pending'); payment.status = 'REJECTED'; payment.adminReason = reason || 'Rejected by admin'; return this.payments.save(payment); }
   async pendingPayments() { return this.payments.find({ where: { status: 'PENDING' }, order: { createdAt: 'ASC' }, take: 50 }); }
   async myOrders(userId: string) { return this.orders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 50 }); }
   async myTransactions(userId: string) { return this.transactions.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 100 }); }
