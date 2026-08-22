@@ -1,0 +1,12 @@
+'use client';
+import {createContext,useCallback,useContext,useEffect,useMemo,useState} from 'react';
+import {api} from '@/lib/api';
+import type {Me,Service,Product,Method,Notification} from '@/components/panel/types';
+type C={me:Me|null;services:Service[];products:Product[];methods:Method[];notifications:Notification[];loading:boolean;realtime:boolean;refresh:()=>Promise<void>;markRead:(id:string)=>Promise<void>};
+const PanelContext=createContext<C|null>(null);
+export function PanelProvider({children}:{children:React.ReactNode}){const [me,setMe]=useState<Me|null>(null),[services,setServices]=useState<Service[]>([]),[products,setProducts]=useState<Product[]>([]),[methods,setMethods]=useState<Method[]>([]),[notifications,setNotifications]=useState<Notification[]>([]),[loading,setLoading]=useState(true),[realtime,setRealtime]=useState(false);
+ const refresh=useCallback(async()=>{const [m,s,p,pm,n]=await Promise.all([api<Me>('auth/me'),api<Service[]>('services'),api<Product[]>('products'),api<Method[]>('payment-methods'),api<Notification[]>('notifications')]);setMe(m);setServices(s);setProducts(p);setMethods(pm);setNotifications(n)},[]);
+ useEffect(()=>{refresh().catch(console.error).finally(()=>setLoading(false))},[refresh]);
+ useEffect(()=>{if(!me)return;let es:EventSource|undefined,t:number|undefined;const connect=()=>{es=new EventSource('/api/notifications/stream');es.onopen=()=>setRealtime(true);es.onmessage=e=>{try{const x=JSON.parse(e.data);if(x.type==='notification'&&x.notification)setNotifications(v=>[x.notification,...v.filter(n=>n.id!==x.notification.id)].slice(0,50));if(x.type==='wallet.updated'&&x.wallet)setMe(v=>v?{...v,wallet:v.wallet?{...v.wallet,balance:String(x.wallet.balance),currency:x.wallet.currency}:null}:v)}catch{}};es.onerror=()=>{setRealtime(false);es?.close();t=window.setTimeout(connect,4000)}};connect();return()=>{if(t)clearTimeout(t);es?.close();setRealtime(false)}},[me]);
+ const markRead=useCallback(async(id:string)=>{await api(`notifications/${id}/read`,{method:'POST'});setNotifications(v=>v.map(n=>n.id===id?{...n,read:true}:n))},[]);const value=useMemo(()=>({me,services,products,methods,notifications,loading,realtime,refresh,markRead}),[me,services,products,methods,notifications,loading,realtime,refresh,markRead]);return <PanelContext.Provider value={value}>{children}</PanelContext.Provider>}
+export function usePanel(){const c=useContext(PanelContext);if(!c)throw new Error('usePanel must be used inside PanelProvider');return c}
