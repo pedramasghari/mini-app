@@ -17,7 +17,7 @@ cp .env.example .env
 
 Set `TELEGRAM_BOT_TOKEN` in `backend/.env`.
 
-Then install and run:
+Then:
 
 ```bash
 pnpm install
@@ -37,11 +37,13 @@ pnpm dev
 
 Frontend: `http://localhost:3000`
 
+The frontend proxies `/api/*` to the backend, so the session cookie remains same-origin from the browser's point of view.
+
 ## 4. Open it inside Telegram
 
-Telegram Mini Apps must be opened by Telegram so that `Telegram.WebApp.initData` exists. For a normal production bot, configure the Mini App URL in @BotFather. The URL must be HTTPS.
+Telegram Mini Apps must be opened by Telegram so that `Telegram.WebApp.initData` exists. For a normal bot, configure the Mini App URL in @BotFather. Telegram's production Mini App URL should use HTTPS.
 
-For local development, expose the Next.js port with a HTTPS tunnel such as Cloudflare Tunnel:
+For local development, expose only Next.js with a HTTPS tunnel:
 
 ```bash
 cloudflared tunnel --url http://localhost:3000
@@ -49,19 +51,7 @@ cloudflared tunnel --url http://localhost:3000
 
 Copy the generated `https://...trycloudflare.com` URL and configure it as the bot's Main Mini App or Menu Button in @BotFather.
 
-Important: the backend must also be reachable by the browser. For local development with the current frontend, expose port 4000 as well:
-
-```bash
-cloudflared tunnel --url http://localhost:4000
-```
-
-Then set the public backend URL in `frontend/.env.local`:
-
-```env
-NEXT_PUBLIC_API_URL=https://YOUR-BACKEND-TUNNEL.trycloudflare.com
-```
-
-Restart Next.js after changing the environment variable.
+If you use a different tunnel/domain, set the backend's `FRONTEND_URL` only if you also want direct cross-origin API access. The normal development path uses the Next.js `/api` proxy and does not require exposing port 4000.
 
 ## Authentication
 
