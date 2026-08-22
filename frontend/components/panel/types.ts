@@ -1,0 +1,12 @@
+export type User={id:string;telegramId:string;username:string|null;firstName:string|null;lastName:string|null;photoUrl:string|null};
+export type Wallet={id:string;balance:string;currency:string};
+export type Me={user:User;wallet:Wallet|null};
+export type Service={id:string;slug:string;title:string;description:string;icon:string};
+export type Product={id:string;serviceId:string;title:string;description:string;price:string;currency:string;icon:string};
+export type Method={id:string;type:string;title:string;cardNumber:string;holderName:string;bankName:string|null};
+export type Notification={id:string;type:string;title:string;message:string;read:boolean;createdAt:string};
+export type Step={id:string;position:number;title:string;content:string;imageUrl:string|null;requiresInput:boolean;inputKey:string|null;inputLabel:string|null};
+export type Guide={id:string;title:string;description:string|null;steps:Step[]};
+export type Progress={currentStep:number;completed:boolean};
+export type Order={id:string;status:string;amount:string;currency:string};
+export type GuideData={order:Order;product:Product;guide:Guide;steps:Step[];progress:Progress;inputs:{key:string;value:string}[]};
