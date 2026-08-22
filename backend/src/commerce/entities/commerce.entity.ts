@@ -39,7 +39,8 @@ export class ActivationGuide {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index({ unique: true }) @Column('uuid') productId!: string;
   @Column({ length: 160 }) title!: string;
-  @Column({ type: 'varchar', length: 500, nullable: true }) description!: string | null;
+  @Column({ type: 'varchar', length: 500, nullable: true }) description!:
+    string | null;
   @Column({ default: true }) active!: boolean;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
@@ -52,10 +53,17 @@ export class ActivationStep {
   @Column('int') position!: number;
   @Column({ length: 160 }) title!: string;
   @Column({ type: 'text' }) content!: string;
-  @Column({ length: 500, nullable: true }) imageUrl!: string | null;
+  @Column({
+    type: 'varchar',
+    length: 500,
+    nullable: true,
+  })
+  imageUrl!: string | null;
   @Column({ default: false }) requiresInput!: boolean;
-  @Column({ length: 80, nullable: true }) inputKey!: string | null;
-  @Column({ length: 160, nullable: true }) inputLabel!: string | null;
+  @Column({ type: 'varchar', length: 80, nullable: true }) inputKey!:
+    string | null;
+  @Column({ type: 'varchar', length: 160, nullable: true }) inputLabel!:
+    string | null;
 }
 
 @Entity('orders')
@@ -85,9 +93,10 @@ export class PaymentMethod {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column({ length: 40, default: 'CARD_TRANSFER' }) type!: string;
   @Column({ length: 120 }) title!: string;
-  @Column({ length: 120 }) cardNumber!: string;
+  @Column({ type: 'varchar', length: 120 }) cardNumber!: string;
   @Column({ length: 160 }) holderName!: string;
-  @Column({ length: 120, nullable: true }) bankName!: string | null;
+  @Column({ type: 'varchar', length: 120, nullable: true }) bankName!:
+    string | null;
   @Column({ default: true }) active!: boolean;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
@@ -118,8 +127,10 @@ export class WalletTransaction {
   @Column({ type: 'decimal', precision: 30, scale: 8 }) balanceBefore!: string;
   @Column({ type: 'decimal', precision: 30, scale: 8 }) balanceAfter!: string;
   @Column({ length: 10, default: 'USD' }) currency!: string;
-  @Column({ length: 120, nullable: true }) referenceType!: string | null;
-  @Column({ length: 120, nullable: true }) referenceId!: string | null;
+  @Column({ type: 'varchar', length: 120, nullable: true }) referenceType!:
+    string | null;
+  @Column({ type: 'varchar', length: 120, nullable: true }) referenceId!:
+    string | null;
   @Column({ type: 'text', nullable: true }) description!: string | null;
   @CreateDateColumn() createdAt!: Date;
 }
