@@ -1,11 +1,4 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  Index,
-  PrimaryGeneratedColumn,
-  UpdateDateColumn,
-} from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
 @Entity('services')
 export class Service {
@@ -37,8 +30,7 @@ export class ActivationGuide {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index({ unique: true }) @Column('uuid') productId!: string;
   @Column({ length: 160 }) title!: string;
-  @Column({ type: 'varchar', length: 500, nullable: true }) description!:
-    string | null;
+  @Column({ type: 'varchar', length: 500, nullable: true }) description!: string | null;
   @Column({ default: true }) active!: boolean;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
@@ -50,13 +42,10 @@ export class ActivationStep {
   @Column('int') position!: number;
   @Column({ length: 160 }) title!: string;
   @Column({ type: 'text' }) content!: string;
-  @Column({ type: 'varchar', length: 500, nullable: true }) imageUrl!:
-    string | null;
+  @Column({ type: 'varchar', length: 500, nullable: true }) imageUrl!: string | null;
   @Column({ default: false }) requiresInput!: boolean;
-  @Column({ type: 'varchar', length: 80, nullable: true }) inputKey!:
-    string | null;
-  @Column({ type: 'varchar', length: 160, nullable: true }) inputLabel!:
-    string | null;
+  @Column({ type: 'varchar', length: 80, nullable: true }) inputKey!: string | null;
+  @Column({ type: 'varchar', length: 160, nullable: true }) inputLabel!: string | null;
 }
 @Entity('orders')
 export class Order {
@@ -96,13 +85,13 @@ export class PaymentMethod {
   @Column({ length: 120 }) title!: string;
   @Column({ type: 'varchar', length: 120 }) cardNumber!: string;
   @Column({ length: 160 }) holderName!: string;
-  @Column({ type: 'varchar', length: 120, nullable: true }) bankName!:
-    string | null;
+  @Column({ type: 'varchar', length: 120, nullable: true }) bankName!: string | null;
   @Column({ default: true }) active!: boolean;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }
 @Entity('payment_requests')
+@Index('uq_one_pending_deposit_per_user', ['userId'], { unique: true, where: '"status" = \'PENDING\'' })
 export class PaymentRequest {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index() @Column('uuid') userId!: string;
