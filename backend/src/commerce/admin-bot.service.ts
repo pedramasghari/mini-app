@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -7,12 +7,16 @@ import { User } from '../users/entities/user.entity';
 import { CommerceService } from './commerce.service';
 import { PaymentMethod } from './entities/commerce.entity';
 
+type InlineKeyboardMarkup = { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> };
+
 @Injectable()
 export class AdminBotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AdminBotService.name);
-  private offset = 0; private timer?: NodeJS.Timeout;
+  private offset = 0;
+  private timer?: NodeJS.Timeout;
   private readonly states = new Map<number, { action: string; values: string[]; paymentId?: string }>();
   private readonly notified = new Set<string>();
+
   constructor(private config: ConfigService, private commerce: CommerceService, @InjectRepository(PaymentMethod) private methods: Repository<PaymentMethod>, @InjectRepository(User) private users: Repository<User>) {}
   onModuleInit() { if (this.config.get('ADMIN_BOT_TOKEN')) this.poll(); }
   onModuleDestroy() { if (this.timer) clearTimeout(this.timer); }
@@ -37,8 +41,7 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
       this.notified.add(p.id);
       const user = await this.users.findOne({ where: { id: p.userId } });
       for (const admin of this.admins()) {
-        const chatId = Number(admin);
-        if (!Number.isSafeInteger(chatId)) continue;
+        const chatId = Number(admin); if (!Number.isSafeInteger(chatId)) continue;
         await this.send(chatId, `🔔 New payment request\n\nID: ${p.id}\nUser: ${user?.username ? '@' + user.username : user?.telegramId}\nAmount: ${p.amount} ${p.currency}`, { inline_keyboard: [[{ text: '✅ Approve', callback_data: `approve:${p.id}` }, { text: '❌ Reject', callback_data: `reject:${p.id}` }]] });
         if (p.receiptPath) await this.sendFile(chatId, p.receiptPath, `Receipt ${p.id}`);
       }
@@ -70,6 +73,6 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
 
   private async sendPending(chatId: number) { const rows = await this.commerce.pendingPayments(); if (!rows.length) return this.send(chatId, 'No pending payments.'); for (const p of rows) { const user = await this.users.findOne({ where: { id: p.userId } }); await this.send(chatId, `Payment\nID: ${p.id}\nUser: ${user?.username ? '@' + user.username : user?.telegramId}\nAmount: ${p.amount} ${p.currency}\nStatus: ${p.status}`, { inline_keyboard: [[{ text: '✅ Approve', callback_data: `approve:${p.id}` }, { text: '❌ Reject', callback_data: `reject:${p.id}` }]] }); if (p.receiptPath) await this.sendFile(chatId, p.receiptPath, `Receipt ${p.id}`); } }
   private async sendCards(chatId: number) { const cards = await this.methods.find({ where: { active: true }, order: { createdAt: 'DESC' } }); if (!cards.length) return this.send(chatId, 'No active cards.'); return this.send(chatId, cards.map(c => `• ${c.bankName ?? ''} ${c.cardNumber.slice(0, 4)} **** **** ${c.cardNumber.slice(-4)} — ${c.holderName}`).join('\n')); }
-  private async send(chatId: number, text: string, inline_keyboard?: any[][]) { return this.api('sendMessage', { chat_id: chatId, text, ...(inline_keyboard ? { reply_markup: { inline_keyboard } } : {}) }); }
+  private async send(chatId: number, text: string, reply_markup?: InlineKeyboardMarkup) { return this.api('sendMessage', { chat_id: chatId, text, ...(reply_markup ? { reply_markup } : {}) }); }
   private async sendFile(chatId: number, path: string, caption: string) { const token = this.config.get<string>('ADMIN_BOT_TOKEN'); const bytes = await readFile(path); const form = new FormData(); form.append('chat_id', String(chatId)); form.append('caption', caption); form.append('document', new Blob([bytes]), path.split(/[\\/]/).pop() ?? 'receipt'); await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: 'POST', body: form }); }
 }
