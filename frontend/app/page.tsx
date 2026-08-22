@@ -1,64 +1,58 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function HomePage() {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
+    let cancelled = false;
+
     async function login() {
-      const initData =
-        window.Telegram.WebApp.initData;
+      const initData = window.Telegram?.WebApp?.initData;
 
       if (!initData) {
-        console.error(
-          'Telegram initData is missing',
-        );
-
+        if (!cancelled) {
+          setError('این صفحه باید از داخل Telegram Mini App باز شود.');
+        }
         return;
       }
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/auth/telegram`,
-        {
-          method: 'POST',
-
-          headers: {
-            'Content-Type':
-              'application/json',
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/auth/telegram`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ initData }),
           },
-
-          credentials: 'include',
-
-          body: JSON.stringify({
-            initData,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          'Telegram authentication failed',
         );
+
+        if (!response.ok) {
+          throw new Error('Telegram authentication failed');
+        }
+
+        router.replace('/panel');
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setError('ورود با Telegram انجام نشد.');
       }
-
-      const data =
-        await response.json();
-
-      console.log(
-        'Authenticated user:',
-        data,
-      );
-
-      window.location.href =
-        '/panel';
     }
 
     login();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center">
-      <div>
-        Connecting to Telegram...
+    <main className="flex min-h-screen items-center justify-center p-6">
+      <div className="text-center">
+        {!error && <p>Connecting to Telegram...</p>}
+        {error && <p className="text-sm">{error}</p>}
       </div>
     </main>
   );
