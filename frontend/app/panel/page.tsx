@@ -4,54 +4,53 @@ import { useEffect, useMemo, useState } from 'react';
 
 type User = { id: string; telegramId: string; username: string | null; firstName: string | null; lastName: string | null; photoUrl: string | null; languageCode: string | null };
 type Wallet = { id: string; balance: string; currency: string };
-type MeResponse = { user: User; wallet: Wallet | null };
+type Me = { user: User; wallet: Wallet | null };
+type Service = { id: string; slug: string; title: string; description: string; icon: string };
+type Product = { id: string; title: string; description: string; price: string; currency: string; icon: string };
+type Method = { id: string; title: string; cardNumber: string; holderName: string; bankName: string | null };
 
-function initials(user: User) {
-  const value = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
-  return value ? value.split(/\s+/).slice(0, 2).map((x) => x[0]).join('').toUpperCase() : 'U';
-}
+const api = async <T,>(path: string, options?: RequestInit) => { const r = await fetch(`/api/${path}`, { credentials: 'include', ...options }); if (!r.ok) throw new Error((await r.text()) || 'Request failed'); return r.json() as Promise<T>; };
+function initials(u: User) { return `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0]).join('').toUpperCase() || 'U'; }
 
 export default function PanelPage() {
-  const [data, setData] = useState<MeResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [me, setMe] = useState<Me | null>(null); const [products, setProducts] = useState<Product[]>([]); const [methods, setMethods] = useState<Method[]>([]);
+  const [loading, setLoading] = useState(true); const [menu, setMenu] = useState(false); const [deposit, setDeposit] = useState(false); const [amount, setAmount] = useState(''); const [method, setMethod] = useState(''); const [receipt, setReceipt] = useState<File | null>(null); const [message, setMessage] = useState('');
 
-  useEffect(() => {
-    fetch('/api/auth/me', { credentials: 'include' })
-      .then(async (res) => { if (!res.ok) throw new Error('Session expired'); return res.json() as Promise<MeResponse>; })
-      .then(setData)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
+  useEffect(() => { Promise.all([api<Me>('auth/me'), api<Product[]>('products'), api<Method[]>('payment-methods')]).then(([m, p, pm]) => { setMe(m); setProducts(p); setMethods(pm); setMethod(pm[0]?.id ?? ''); }).catch(() => setMessage('Please reopen the Mini App from Telegram.')).finally(() => setLoading(false)); }, []);
+  const displayName = useMemo(() => [me?.user.firstName, me?.user.lastName].filter(Boolean).join(' ') || 'Telegram User', [me]);
+  const balance = Number(me?.wallet?.balance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const displayName = useMemo(() => {
-    if (!data?.user) return 'Telegram User';
-    return [data.user.firstName, data.user.lastName].filter(Boolean).join(' ') || 'Telegram User';
-  }, [data]);
+  async function logout() { await api('auth/logout', { method: 'POST' }); location.reload(); }
+  async function submitDeposit(e: React.FormEvent) { e.preventDefault(); if (!receipt || !amount || !method) return setMessage('Enter the amount and upload your receipt.'); const fd = new FormData(); fd.append('amount', amount); fd.append('paymentMethodId', method); fd.append('receipt', receipt); await api('payments/card-transfer', { method: 'POST', body: fd }); setDeposit(false); setMessage('Deposit submitted. An admin will review your receipt.'); }
 
-  if (loading) return <main className="min-h-screen grid place-items-center bg-[#0b1020] text-white"><div className="animate-pulse rounded-2xl bg-white/10 px-6 py-4">Loading your dashboard…</div></main>;
-  if (error || !data) return <main className="min-h-screen grid place-items-center bg-[#0b1020] p-6 text-center text-white"><div><p className="text-xl font-semibold">Session expired</p><p className="mt-2 text-white/60">Please reopen the Mini App from Telegram.</p></div></main>;
+  if (loading) return <main className="min-h-screen grid place-items-center bg-[#070b14] text-white"><div className="animate-pulse rounded-3xl border border-white/10 bg-white/5 px-6 py-4">Loading dashboard…</div></main>;
+  if (!me) return <main className="min-h-screen grid place-items-center bg-[#070b14] p-6 text-center text-white"><div><h1 className="text-xl font-bold">Mini App unavailable</h1><p className="mt-2 text-white/50">{message}</p></div></main>;
+  const { user, wallet } = me;
 
-  const { user, wallet } = data;
-  const balance = Number(wallet?.balance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return <main className="min-h-screen bg-[#070b14] text-white selection:bg-cyan-300 selection:text-black">
+    <div className="pointer-events-none fixed -left-32 -top-32 h-80 w-80 rounded-full bg-cyan-500/15 blur-3xl" /><div className="pointer-events-none fixed -right-32 top-1/3 h-96 w-96 rounded-full bg-violet-500/10 blur-3xl" />
+    <div className="relative mx-auto max-w-xl px-4 pb-10 pt-4">
+      <header className="sticky top-0 z-30 -mx-4 mb-5 flex items-center justify-between border-b border-white/5 bg-[#070b14]/80 px-4 py-3 backdrop-blur-xl">
+        <div><p className="text-[10px] font-bold uppercase tracking-[.28em] text-cyan-300/70">Store</p><h1 className="text-lg font-bold">Dashboard</h1></div>
+        <button onClick={() => setMenu(!menu)} className="relative h-11 w-11 overflow-hidden rounded-2xl border border-white/10 bg-white/10 transition hover:bg-white/15 active:scale-95">{user.photoUrl ? <img src={user.photoUrl} className="h-full w-full object-cover" alt={displayName} /> : <span className="grid h-full w-full place-items-center font-bold">{initials(user)}</span>}</button>
+        {menu && <div className="absolute right-4 top-16 z-50 w-64 animate-[menu_.18s_ease-out] rounded-3xl border border-white/10 bg-[#111827]/95 p-2 shadow-2xl backdrop-blur-2xl"><div className="px-3 py-3"><p className="font-semibold">{displayName}</p><p className="text-xs text-white/45">{user.username ? `@${user.username}` : user.telegramId}</p></div>{[['Wallet', () => setDeposit(true)], ['My Accounts', () => setMessage('Your purchased accounts will appear here.')], ['Transactions', () => setMessage('Transaction history will appear here.')], ['Settings', () => setMessage('Settings are coming next.')]].map(([label, fn]) => <button key={label as string} onClick={fn as () => void} className="block w-full rounded-2xl px-3 py-3 text-left text-sm text-white/75 transition hover:bg-white/10">{label as string}</button>)}<button onClick={logout} className="mt-1 w-full rounded-2xl px-3 py-3 text-left text-sm text-red-300 hover:bg-red-500/10">Logout</button></div>}
+      </header>
 
-  return (
-    <main className="min-h-screen overflow-hidden bg-[#080d19] text-white">
-      <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-cyan-500/20 blur-3xl" />
-      <div className="pointer-events-none absolute -right-24 top-40 h-80 w-80 rounded-full bg-violet-500/15 blur-3xl" />
-      <div className="relative mx-auto w-full max-w-xl px-4 pb-8 pt-5 sm:px-6">
-        <header className="mb-6 flex items-center justify-between"><div><p className="text-xs font-medium uppercase tracking-[0.22em] text-cyan-300/70">Dashboard</p><h1 className="mt-1 text-2xl font-bold tracking-tight">Welcome back</h1></div><div className="rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-white/60">Online</div></header>
+      <section className="mb-4 overflow-hidden rounded-[30px] border border-white/10 bg-gradient-to-br from-cyan-400/20 via-white/[.07] to-violet-500/10 p-5 shadow-2xl shadow-cyan-950/20"><div className="flex items-center gap-4"><div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-[22px] border border-white/15 bg-gradient-to-br from-cyan-300 to-blue-600 grid place-items-center text-xl font-black">{user.photoUrl ? <img src={user.photoUrl} className="h-full w-full object-cover" alt="" /> : initials(user)}<span className="absolute bottom-0 right-0 h-4 w-4 rounded-full border-[3px] border-[#172033] bg-emerald-400" /></div><div className="min-w-0"><p className="text-xs text-white/45">Welcome back</p><h2 className="truncate text-xl font-bold">{displayName}</h2><p className="truncate text-xs text-white/40">{user.username ? `@${user.username}` : 'Telegram account'}</p></div></div></section>
 
-        <section className="relative overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-white/[0.12] to-white/[0.04] p-5 shadow-2xl shadow-black/20 backdrop-blur-xl"><div className="absolute inset-0 bg-gradient-to-br from-cyan-400/10 via-transparent to-violet-400/10" /><div className="relative flex items-center gap-4"><div className="relative shrink-0"><div className="grid h-20 w-20 place-items-center overflow-hidden rounded-[24px] bg-gradient-to-br from-cyan-300 to-blue-600 text-2xl font-bold shadow-lg shadow-cyan-500/20 ring-4 ring-white/10">{user.photoUrl ? <img src={user.photoUrl} alt={displayName} className="h-full w-full object-cover" /> : initials(user)}</div><span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-4 border-[#111827] bg-emerald-400" /></div><div className="min-w-0"><h2 className="truncate text-xl font-bold">{displayName}</h2><p className="mt-1 truncate text-sm text-white/55">{user.username ? `@${user.username}` : `Telegram ID ${user.telegramId}`}</p><div className="mt-3 inline-flex rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/60">Telegram account</div></div></div></section>
+      <section className="overflow-hidden rounded-[30px] border border-white/10 bg-white/[.055] p-5 shadow-xl backdrop-blur-xl"><div className="flex items-start justify-between"><div><p className="text-xs text-white/45">Available balance</p><p className="mt-2 text-4xl font-black tracking-tight">{balance}</p></div><span className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-[11px] font-bold text-white/60">{wallet?.currency ?? 'USD'}</span></div><button onClick={() => setDeposit(true)} className="mt-5 w-full rounded-2xl bg-white px-4 py-3 text-sm font-bold text-black transition hover:bg-cyan-100 active:scale-[.99]">+ Add funds</button></section>
 
-        <section className="mt-4 overflow-hidden rounded-[28px] border border-cyan-300/10 bg-gradient-to-br from-cyan-500/20 via-blue-600/15 to-violet-600/20 p-5 shadow-xl shadow-cyan-950/20"><div className="flex items-start justify-between"><div><p className="text-sm text-white/60">Available balance</p><p className="mt-2 text-4xl font-bold tracking-tight">{balance}</p></div><div className="rounded-2xl border border-white/10 bg-black/10 px-3 py-2 text-xs font-semibold text-white/70">{wallet?.currency ?? 'USD'}</div></div><div className="mt-7 flex items-center justify-between border-t border-white/10 pt-4 text-xs text-white/45"><span>Wallet</span><span>{wallet ? wallet.id.slice(0, 8) : 'Not created'}</span></div></section>
+      <div className="mt-7 flex items-end justify-between"><div><p className="text-xs font-bold uppercase tracking-[.22em] text-cyan-300/60">Services</p><h2 className="mt-1 text-2xl font-black">Get started</h2></div><span className="text-xs text-white/35">{products.length} available</span></div>
+      <section className="mt-4 space-y-3">{products.map(p => <article key={p.id} className="group rounded-[28px] border border-white/10 bg-white/[.045] p-4 transition duration-300 hover:-translate-y-0.5 hover:border-cyan-300/20 hover:bg-white/[.07]"><div className="flex items-center gap-4"><div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-white/10 text-2xl"></div><div className="min-w-0 flex-1"><h3 className="font-bold">{p.title}</h3><p className="mt-1 line-clamp-2 text-xs leading-5 text-white/45">{p.description}</p></div><div className="text-right"><p className="text-sm font-black">{p.price} {p.currency}</p><button className="mt-2 rounded-xl bg-cyan-300 px-3 py-2 text-xs font-bold text-black transition hover:bg-cyan-200">View</button></div></div></article>)}</section>
 
-        <section className="mt-4 grid grid-cols-2 gap-3"><button disabled className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 text-left opacity-80"><span className="text-xl">↗</span><p className="mt-3 font-semibold">Deposit</p><p className="mt-1 text-xs text-white/40">Coming soon</p></button><button disabled className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 text-left opacity-80"><span className="text-xl">↘</span><p className="mt-3 font-semibold">Withdraw</p><p className="mt-1 text-xs text-white/40">Coming soon</p></button></section>
+      <section className="mt-7 grid grid-cols-2 gap-3">{[['✓','Guided setup'],['⚡','Fast support'],['🔒','Secure payments'],['◎','Clear pricing']].map(([i,t]) => <div key={t} className="rounded-2xl border border-white/8 bg-white/[.035] p-4"><span className="text-lg">{i}</span><p className="mt-2 text-xs font-semibold text-white/65">{t}</p></div>)}</section>
 
-        <section className="mt-4 rounded-[28px] border border-white/10 bg-white/[0.045] p-5 backdrop-blur-xl"><p className="text-sm font-semibold">Account</p><div className="mt-4 space-y-3 text-sm"><div className="flex justify-between gap-4"><span className="text-white/45">Telegram ID</span><span className="font-mono text-xs text-white/70">{user.telegramId}</span></div><div className="flex justify-between gap-4"><span className="text-white/45">Language</span><span className="text-white/70">{user.languageCode ?? '—'}</span></div><div className="flex justify-between gap-4"><span className="text-white/45">Account</span><span className="text-emerald-300">Active</span></div></div></section>
+      <section className="mt-7 rounded-[28px] border border-white/10 bg-white/[.04] p-5"><p className="text-xs font-bold uppercase tracking-[.2em] text-white/35">FAQ</p><div className="mt-4 space-y-2">{['How does the guided setup work?','How do I add funds?','Where can I see my orders?'].map(q => <details key={q} className="group rounded-2xl bg-white/[.04] px-4 py-3"><summary className="cursor-pointer list-none text-sm font-medium">{q}<span className="float-right text-white/30">+</span></summary><p className="pt-3 text-xs leading-5 text-white/45">You will be guided through the supported steps inside the Mini App. Payment requests are reviewed by an admin before funds are credited.</p></details>)}</div></section>
 
-        <nav className="mt-5 grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-2 text-center text-xs text-white/45"><span className="rounded-xl bg-white/10 px-3 py-2.5 text-white">Home</span><span className="px-3 py-2.5">Transactions</span><span className="px-3 py-2.5">Services</span></nav>
-      </div>
-    </main>
-  );
+      {message && <button onClick={() => setMessage('')} className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-2xl border border-white/10 bg-[#182235] px-4 py-3 text-xs text-white shadow-2xl">{message}</button>}
+      <nav className="fixed bottom-3 left-1/2 z-40 flex w-[calc(100%-24px)] max-w-md -translate-x-1/2 justify-around rounded-3xl border border-white/10 bg-[#111827]/90 p-2 shadow-2xl backdrop-blur-2xl"><span className="rounded-2xl bg-white/10 px-5 py-2.5 text-xs font-bold">Home</span><span className="px-5 py-2.5 text-xs text-white/40">Orders</span><span className="px-5 py-2.5 text-xs text-white/40">Wallet</span><span className="px-5 py-2.5 text-xs text-white/40">Profile</span></nav>
+    </div>
+
+    {deposit && <div className="fixed inset-0 z-50 grid place-items-end bg-black/60 p-3 backdrop-blur-sm sm:place-items-center"><form onSubmit={submitDeposit} className="w-full max-w-md rounded-[30px] border border-white/10 bg-[#111827] p-5 shadow-2xl"><div className="flex items-center justify-between"><div><p className="text-xs text-cyan-300/60">Wallet</p><h2 className="text-xl font-black">Add funds</h2></div><button type="button" onClick={() => setDeposit(false)} className="rounded-xl bg-white/10 px-3 py-2">×</button></div><div className="mt-5 space-y-3"><input value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" placeholder="Amount" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none focus:border-cyan-300/40" /><select value={method} onChange={e => setMethod(e.target.value)} className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none">{methods.map(m => <option key={m.id} value={m.id}>{m.bankName ?? ''} {m.cardNumber.slice(0,4)} **** {m.cardNumber.slice(-4)}</option>)}</select><label className="block rounded-2xl border border-dashed border-white/15 bg-white/[.03] p-4 text-sm text-white/55"><span className="font-semibold text-white">Upload receipt</span><input type="file" accept="image/*,application/pdf" onChange={e => setReceipt(e.target.files?.[0] ?? null)} className="mt-3 block w-full text-xs" /></label><p className="text-[11px] leading-5 text-white/35">Your receipt is sent to the admin for manual review. Your balance is credited only after approval.</p><button className="w-full rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-black text-black transition hover:bg-cyan-200">Submit deposit</button></div></form></div>}
+  </main>;
 }
