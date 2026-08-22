@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { readFile } from 'node:fs/promises';
 import { User } from '../users/entities/user.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CommerceService } from './commerce.service';
 import { PaymentMethod } from './entities/commerce.entity';
 
@@ -17,7 +18,7 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
   private readonly states = new Map<number, { action: string; values: string[]; paymentId?: string }>();
   private readonly notified = new Set<string>();
 
-  constructor(private config: ConfigService, private commerce: CommerceService, @InjectRepository(PaymentMethod) private methods: Repository<PaymentMethod>, @InjectRepository(User) private users: Repository<User>) {}
+  constructor(private config: ConfigService, private commerce: CommerceService, private notifications: NotificationsService, @InjectRepository(PaymentMethod) private methods: Repository<PaymentMethod>, @InjectRepository(User) private users: Repository<User>) {}
   onModuleInit() { if (this.config.get('ADMIN_BOT_TOKEN')) this.poll(); }
   onModuleDestroy() { if (this.timer) clearTimeout(this.timer); }
   private admins() { return String(this.config.get('ADMIN_TELEGRAM_IDS') ?? '').split(',').map(v => v.trim()).filter(Boolean); }
@@ -42,7 +43,7 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
       const user = await this.users.findOne({ where: { id: p.userId } });
       for (const admin of this.admins()) {
         const chatId = Number(admin); if (!Number.isSafeInteger(chatId)) continue;
-        await this.send(chatId, `🔔 New payment request\n\nID: ${p.id}\nUser: ${user?.username ? '@' + user.username : user?.telegramId}\nAmount: ${p.amount} ${p.currency}`, { inline_keyboard: [[{ text: '✅ Approve', callback_data: `approve:${p.id}` }, { text: '❌ Reject', callback_data: `reject:${p.id}` }]] });
+        await this.send(chatId, `🔔 New wallet charge request\n\nID: ${p.id}\nUser: ${user?.username ? '@' + user.username : user?.telegramId}\nAmount: ${p.amount} ${p.currency}\nStatus: PENDING`, { inline_keyboard: [[{ text: '✅ Approve', callback_data: `approve:${p.id}` }, { text: '❌ Reject', callback_data: `reject:${p.id}` }]] });
         if (p.receiptPath) await this.sendFile(chatId, p.receiptPath, `Receipt ${p.id}`);
       }
     }
@@ -60,15 +61,29 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async stateMessage(chatId: number, adminId: number, text: string, state: { action: string; values: string[]; paymentId?: string }) {
-    if (state.action === 'reject') { this.states.delete(adminId); await this.commerce.rejectPayment(state.paymentId!, text); return this.send(chatId, 'Payment rejected.'); }
+    if (state.action === 'reject') {
+      this.states.delete(adminId);
+      try { const result = await this.commerce.rejectPayment(state.paymentId!, text); await this.notifyCustomer(result.userId, '❌ Deposit rejected', result.adminReason ?? 'Your deposit was rejected.'); return this.send(chatId, 'Payment rejected and customer notified.'); }
+      catch (error) { return this.send(chatId, `Could not reject payment: ${error instanceof Error ? error.message : 'already processed'}`); }
+    }
     if (state.action === 'addcard') { state.values.push(text); if (state.values.length === 1) return this.send(chatId, 'Card holder name:'); if (state.values.length === 2) return this.send(chatId, 'Bank name (or -):'); this.states.delete(adminId); const [cardNumber, holderName, bank] = state.values; await this.methods.save(this.methods.create({ type: 'CARD_TRANSFER', title: `${bank === '-' ? '' : bank + ' '}Card`, cardNumber, holderName, bankName: bank === '-' ? null : bank, active: true })); return this.send(chatId, `Card added.\n${cardNumber.slice(0, 4)} **** **** ${cardNumber.slice(-4)}`); }
   }
 
   private async callback(query: any) {
     const adminId = query.from?.id; if (!adminId || !this.allowed(adminId)) return;
     await this.api('answerCallbackQuery', { callback_query_id: query.id }); const data = String(query.data ?? '');
-    if (data.startsWith('approve:')) { const id = data.slice(8); await this.commerce.approvePayment(id, 'Approved by admin'); this.notified.delete(id); return this.send(query.message.chat.id, `Payment ${id} approved.`); }
-    if (data.startsWith('reject:')) { const id = data.slice(7); this.states.set(adminId, { action: 'reject', values: [], paymentId: id }); return this.send(query.message.chat.id, 'Send rejection reason:'); }
+    try {
+      if (data.startsWith('approve:')) { const id = data.slice(8); const payment = await this.commerce.approvePayment(id, 'Approved by admin'); await this.notifyCustomer(payment.userId, '✅ Wallet charged', `Your wallet has been credited with ${payment.amount} ${payment.currency}.`); return this.send(query.message.chat.id, `Payment ${id} approved. Customer notified.`); }
+      if (data.startsWith('reject:')) { const id = data.slice(7); this.states.set(adminId, { action: 'reject', values: [], paymentId: id }); return this.send(query.message.chat.id, 'Send rejection reason:'); }
+    } catch (error) { return this.send(query.message.chat.id, `Could not process payment: ${error instanceof Error ? error.message : 'already processed'}`); }
+  }
+
+  private async notifyCustomer(userId: string, title: string, text: string) {
+    const user = await this.users.findOne({ where: { id: userId } });
+    if (!user) return;
+    if (this.notifications.isOnline(userId)) return;
+    const chatId = Number(user.telegramId); if (!Number.isSafeInteger(chatId)) return;
+    await this.send(chatId, `${title}\n\n${text}`);
   }
 
   private async sendPending(chatId: number) { const rows = await this.commerce.pendingPayments(); if (!rows.length) return this.send(chatId, 'No pending payments.'); for (const p of rows) { const user = await this.users.findOne({ where: { id: p.userId } }); await this.send(chatId, `Payment\nID: ${p.id}\nUser: ${user?.username ? '@' + user.username : user?.telegramId}\nAmount: ${p.amount} ${p.currency}\nStatus: ${p.status}`, { inline_keyboard: [[{ text: '✅ Approve', callback_data: `approve:${p.id}` }, { text: '❌ Reject', callback_data: `reject:${p.id}` }]] }); if (p.receiptPath) await this.sendFile(chatId, p.receiptPath, `Receipt ${p.id}`); } }
