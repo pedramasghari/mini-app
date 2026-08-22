@@ -14,27 +14,19 @@ export default function HomePage() {
       const initData = window.Telegram?.WebApp?.initData;
 
       if (!initData) {
-        if (!cancelled) {
-          setError('این صفحه باید از داخل Telegram Mini App باز شود.');
-        }
+        if (!cancelled) setError('این صفحه باید از داخل Telegram Mini App باز شود.');
         return;
       }
 
       try {
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/auth/telegram`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ initData }),
-          },
-        );
+        const response = await fetch('/api/auth/telegram', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ initData }),
+        });
 
-        if (!response.ok) {
-          throw new Error('Telegram authentication failed');
-        }
-
+        if (!response.ok) throw new Error('Telegram authentication failed');
         router.replace('/panel');
       } catch (err) {
         console.error(err);
