@@ -10,11 +10,7 @@ import { AuthService } from './auth.service';
 import { SessionAuthGuard } from './guards/session-auth.guard';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Session]),
-    UsersModule,
-    WalletsModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Session]), UsersModule, WalletsModule],
   controllers: [AuthController],
   providers: [AuthService, SessionAuthGuard],
   exports: [AuthService, SessionAuthGuard],
