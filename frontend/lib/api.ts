@@ -1,0 +1,2 @@
+export async function api<T>(path:string,options?:RequestInit):Promise<T>{const r=await fetch(`/api/${path}`,{credentials:'include',...options});const text=await r.text();if(!r.ok){let msg=text||'خطا در درخواست';try{const data=JSON.parse(text);msg=Array.isArray(data.message)?data.message.join('، '):(data.message||msg)}catch{}throw new Error(msg)}return text?JSON.parse(text) as T:undefined as T}
+export const fa=(value:number|string)=>Number(value||0).toLocaleString('fa-IR');
