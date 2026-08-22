@@ -13,6 +13,7 @@ import { CommerceService } from './commerce.service';
 const COOKIE = 'miniapp_session';
 mkdirSync('./uploads/receipts', { recursive: true });
 function token(req: Request) { return req.cookies?.[COOKIE] as string | undefined; }
+type UploadedReceipt = { path: string };
 
 @Controller()
 export class CommerceController {
@@ -30,5 +31,5 @@ export class CommerceController {
   @Get('payment-methods') paymentMethods() { return this.commerce.paymentMethods(); }
   @Post('payments/card-transfer')
   @UseInterceptors(FileInterceptor('receipt', { storage: diskStorage({ destination: './uploads/receipts', filename: (_req, file, cb) => cb(null, `${randomUUID()}${extname(file.originalname)}`) }), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (_req, file, cb) => cb(null, ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.mimetype)) }))
-  async cardTransfer(@Req() req: Request, @Body('amount') amount: string, @Body('paymentMethodId') methodId: string, @UploadedFile() receipt?: Express.Multer.File) { if (!receipt) throw new BadRequestException('Receipt is required'); return this.commerce.createPayment(await this.userId(req), amount, methodId, receipt.path); }
+  async cardTransfer(@Req() req: Request, @Body('amount') amount: string, @Body('paymentMethodId') methodId: string, @UploadedFile() receipt?: UploadedReceipt) { if (!receipt) throw new BadRequestException('Receipt is required'); return this.commerce.createPayment(await this.userId(req), amount, methodId, receipt.path); }
 }
