@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 type User = {
   id: string;
@@ -8,6 +9,7 @@ type User = {
   username: string | null;
   firstName: string | null;
   lastName: string | null;
+  languageCode: string | null;
 };
 
 type Wallet = {
@@ -17,57 +19,68 @@ type Wallet = {
 };
 
 export default function PanelPage() {
-  const [user, setUser] =
-    useState<User | null>(null);
-
-  const [wallet, setWallet] =
-    useState<Wallet | null>(null);
+  const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
+  const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
-      // فعلاً برای نمونه بعداً
-      // /auth/telegram response را نگه می‌داریم.
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/auth/me`,
+        { credentials: 'include' },
+      );
+
+      if (response.status === 401) {
+        router.replace('/');
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error('Could not load account');
+      }
+
+      const data = await response.json();
+      setUser(data.user);
+      setWallet(data.wallet);
+      setLoading(false);
     }
 
-    load();
-  }, []);
+    load().catch((error) => {
+      console.error(error);
+      setLoading(false);
+    });
+  }, [router]);
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center p-6">
+        Loading account...
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen p-4">
       <div className="mx-auto max-w-md space-y-4">
-
         <section className="rounded-2xl border p-5">
-          <h1 className="text-xl font-bold">
-            Profile
+          <p className="text-sm opacity-60">Profile</p>
+          <h1 className="mt-2 text-xl font-bold">
+            {user?.firstName} {user?.lastName ?? ''}
           </h1>
-
-          <div className="mt-4">
-            <div>
-              {user?.firstName ?? 'Telegram User'}
-            </div>
-
-            {user?.username && (
-              <div className="text-sm opacity-60">
-                @{user.username}
-              </div>
-            )}
-          </div>
+          {user?.username && (
+            <p className="mt-1 text-sm opacity-60">@{user.username}</p>
+          )}
+          <p className="mt-3 text-xs opacity-50">Telegram ID: {user?.telegramId}</p>
         </section>
 
         <section className="rounded-2xl border p-5">
-          <h2 className="font-bold">
-            Wallet
-          </h2>
-
-          <div className="mt-4 text-3xl font-bold">
+          <p className="text-sm opacity-60">Wallet</p>
+          <div className="mt-3 text-3xl font-bold">
             {wallet?.balance ?? '0.00'}
           </div>
-
-          <div className="text-sm opacity-60">
-            {wallet?.currency ?? 'USD'}
-          </div>
+          <p className="mt-1 text-sm opacity-60">{wallet?.currency ?? 'USD'}</p>
         </section>
-
       </div>
     </main>
   );
