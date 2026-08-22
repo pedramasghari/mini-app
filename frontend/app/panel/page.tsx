@@ -26,19 +26,17 @@ export default function PanelPage() {
 
   useEffect(() => {
     async function load() {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/auth/me`,
-        { credentials: 'include' },
-      );
+      const response = await fetch('/api/auth/me', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
 
       if (response.status === 401) {
         router.replace('/');
         return;
       }
 
-      if (!response.ok) {
-        throw new Error('Could not load account');
-      }
+      if (!response.ok) throw new Error('Could not load account');
 
       const data = await response.json();
       setUser(data.user);
@@ -53,11 +51,7 @@ export default function PanelPage() {
   }, [router]);
 
   if (loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center p-6">
-        Loading account...
-      </main>
-    );
+    return <main className="flex min-h-screen items-center justify-center p-6">Loading account...</main>;
   }
 
   return (
@@ -68,17 +62,13 @@ export default function PanelPage() {
           <h1 className="mt-2 text-xl font-bold">
             {user?.firstName} {user?.lastName ?? ''}
           </h1>
-          {user?.username && (
-            <p className="mt-1 text-sm opacity-60">@{user.username}</p>
-          )}
+          {user?.username && <p className="mt-1 text-sm opacity-60">@{user.username}</p>}
           <p className="mt-3 text-xs opacity-50">Telegram ID: {user?.telegramId}</p>
         </section>
 
         <section className="rounded-2xl border p-5">
           <p className="text-sm opacity-60">Wallet</p>
-          <div className="mt-3 text-3xl font-bold">
-            {wallet?.balance ?? '0.00'}
-          </div>
+          <div className="mt-3 text-3xl font-bold">{wallet?.balance ?? '0.00'}</div>
           <p className="mt-1 text-sm opacity-60">{wallet?.currency ?? 'USD'}</p>
         </section>
       </div>
