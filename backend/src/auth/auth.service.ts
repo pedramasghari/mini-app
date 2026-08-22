@@ -32,9 +32,7 @@ export class AuthService {
     }
 
     const botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN');
-    if (!botToken) {
-      throw new Error('TELEGRAM_BOT_TOKEN is not configured');
-    }
+    if (!botToken) throw new Error('TELEGRAM_BOT_TOKEN is not configured');
 
     try {
       validate(initData, botToken, { expiresIn: 3600 });
@@ -44,10 +42,7 @@ export class AuthService {
 
     const data = parse(initData);
     const telegramUser = data.user;
-
-    if (!telegramUser) {
-      throw new UnauthorizedException('Telegram user not found');
-    }
+    if (!telegramUser) throw new UnauthorizedException('Telegram user not found');
 
     const telegramId = String(telegramUser.id);
     let user = await this.usersService.findByTelegramId(telegramId);
@@ -60,62 +55,51 @@ export class AuthService {
         lastName: telegramUser.lastName ?? null,
         languageCode: telegramUser.languageCode ?? null,
       });
-
       await this.walletsService.createForUser(user.id);
+    } else {
+      user.username = telegramUser.username ?? null;
+      user.firstName = telegramUser.firstName ?? null;
+      user.lastName = telegramUser.lastName ?? null;
+      user.languageCode = telegramUser.languageCode ?? null;
+      user = await this.usersService.save(user);
     }
 
-    // Refresh Telegram profile fields on every successful login.
-    user.username = telegramUser.username ?? null;
-    user.firstName = telegramUser.firstName ?? null;
-    user.lastName = telegramUser.lastName ?? null;
-    user.languageCode = telegramUser.languageCode ?? null;
-    user = await this.usersService.save(user);
-
-    const wallet = await this.walletsService.findByUserId(user.id);
-    if (!wallet) {
-      await this.walletsService.createForUser(user.id);
-    }
+    let wallet = await this.walletsService.findByUserId(user.id);
+    if (!wallet) wallet = await this.walletsService.createForUser(user.id);
 
     const sessionToken = randomBytes(32).toString('hex');
     const tokenHash = this.hashSessionToken(sessionToken);
     const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
 
-    // Keep the session table clean for this user.
     await this.sessionsRepository.delete({ userId: user.id });
+    await this.sessionsRepository.save(
+      this.sessionsRepository.create({
+        tokenHash,
+        userId: user.id,
+        expiresAt,
+        telegramQueryId: data.queryId ?? null,
+      }),
+    );
 
-    const session = this.sessionsRepository.create({
-      tokenHash,
-      userId: user.id,
-      expiresAt,
-      telegramQueryId: data.queryId ?? null,
-    });
-    await this.sessionsRepository.save(session);
-
-    const currentWallet = await this.walletsService.findByUserId(user.id);
-
-    return {
-      sessionToken,
-      expiresAt,
-      user,
-      wallet: currentWallet,
-    };
+    return { sessionToken, expiresAt, user, wallet };
   }
 
   async getUserFromSession(sessionToken: string) {
-    const tokenHash = this.hashSessionToken(sessionToken);
     const session = await this.sessionsRepository.findOne({
-      where: { tokenHash },
+      where: { tokenHash: this.hashSessionToken(sessionToken) },
       relations: { user: true },
     });
-
     if (!session) return null;
 
     if (session.expiresAt.getTime() <= Date.now()) {
       await this.sessionsRepository.delete(session.id);
       return null;
     }
-
     return session.user;
+  }
+
+  async getWalletForUser(userId: string) {
+    return this.walletsService.findByUserId(userId);
   }
 
   async logout(sessionToken?: string) {
