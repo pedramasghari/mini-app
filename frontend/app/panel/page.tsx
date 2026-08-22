@@ -18,15 +18,25 @@ type Wallet = {
 
 export default function PanelPage() {
   const [user, setUser] =
-    useState<User | null>(null);
+    useState<any | null>(null);
 
   const [wallet, setWallet] =
     useState<Wallet | null>(null);
-
+  const [consoleLog, setConsoleLog] =
+    useState<string[]>([]);
   useEffect(() => {
     async function load() {
-      // فعلاً برای نمونه بعداً
-      // /auth/telegram response را نگه می‌داریم.
+      const res = await fetch(
+        `api/auth/telegram`,
+        {
+          method: 'POST',
+          body: window.Telegram.WebApp.initData,
+        },
+      );
+      const data = await res.json();
+      setUser(data.user);
+      setWallet(data.wallet);
+
     }
 
     load();
@@ -67,7 +77,21 @@ export default function PanelPage() {
             {wallet?.currency ?? 'USD'}
           </div>
         </section>
-
+        <section className="rounded-2xl border p-5">
+          <h2 className="font-bold">
+            Console Log
+          </h2>
+          <div className="mt-4 space-y-2">
+            {consoleLog.map((log, index) => (
+              <div
+                key={index}
+                className="text-sm opacity-60"
+              >
+                {log}
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     </main>
   );

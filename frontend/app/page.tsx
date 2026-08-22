@@ -17,7 +17,7 @@ export default function HomePage() {
       }
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/auth/telegram`,
+        `api/auth/telegram`,
         {
           method: 'POST',
 

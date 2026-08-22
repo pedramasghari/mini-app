@@ -50,11 +50,11 @@ export class AuthService {
 
         username: telegramUser.username ?? null,
 
-        firstName: telegramUser.firstName ?? null,
+        firstName: telegramUser.first_name ?? null,
 
-        lastName: telegramUser.lastName ?? null,
+        lastName: telegramUser.last_name ?? null,
 
-        languageCode: telegramUser.languageCode ?? null,
+        languageCode: telegramUser.language_code ?? null,
       });
 
       await this.walletsService.createForUser(user.id);
