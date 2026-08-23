@@ -9,13 +9,14 @@ const vazirmatn = Vazirmatn({
   subsets: ['arabic'],
   display: 'swap',
   variable: '--font-vazirmatn',
+  
 });
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   
   return (
     <html lang="fa" dir="rtl" suppressHydrationWarning>
-      <body className={vazirmatn.variable}>
+      <body className={`overflow-x-hidden ${vazirmatn.variable}`}>
         <Script src="https://telegram.org/js/telegram-web-app.js?59" strategy="beforeInteractive" />
         <TelegramProvider>
           <PanelProvider>

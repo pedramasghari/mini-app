@@ -5,14 +5,17 @@ import { usePanel } from "@/context/PanelContext";
 import NotificationCenter from "../panel/NotificationCenter";
 import { WalletCenter } from "../wallet/walletcenter";
 import ProfileCenter from "../profile/ProfileCenter";
+import { useAppStore } from "@/context/useApp";
+import { ShoppingBag } from "lucide-react";
 
 export default function Header() {
+  const { activeTab, setActiveTab } = useAppStore();
   const go = (path: string) => {
     window.location.href = path;
   };
-  const onDeposit = () => go("/panel/deposit");
-  const onWithdraw = () => go("/panel/withdraw");
-  const onTransactions = () => go("/panel/transactions");
+  const onDeposit = () => setActiveTab("deposit");
+  const onWithdraw = () => setActiveTab("withdraw");
+  const onTransactions = () => setActiveTab("transactions");
   const onLogout = () => go("/logout");
   const { me, realtime } = usePanel();
   const [activeMenu, setActiveMenu] = useState<
@@ -28,14 +31,14 @@ export default function Header() {
   return (
     <header
       dir="rtl"
-      className="sticky top-0 z-50 -mx-3 mb-4 flex min-w-0 items-center justify-between gap-2 border-b border-white/5 bg-[#070b14]/90 px-3 py-3 backdrop-blur-xl sm:-mx-5 sm:px-5"
+      className="sticky  top-0 z-50 -mx-3 mb-4 flex min-w-0 items-center justify-between gap-2 border-b border-white/5 bg-[#070b14]/90 px-3 py-3 backdrop-blur-xl sm:-mx-5 sm:px-5"
     >
-      <div className="min-w-0">
-        <p className="truncate text-[10px] font-bold text-cyan-300/70">
+      <button className="min-w-0 cursor-pointer border border-1 border-[#333] hover:bg-white/10 p-2 rounded-xl flex gap-2 justify-content items-center" onClick={() => setActiveTab("home")}>
+        <ShoppingBag size={20} className="text-white" />
+        <p className="truncate text-lg font-bold text-white">
           فروشگاه
         </p>
-        <h1 className="truncate text-base font-black sm:text-lg">داشبورد</h1>
-      </div>
+      </button>
 
       <div className="flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-2">
         <WalletCenter

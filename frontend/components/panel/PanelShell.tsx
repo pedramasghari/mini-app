@@ -1,49 +1,50 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { CreditCard, Home, ShoppingBag, WalletCards } from 'lucide-react';
-import { usePanel } from '@/context/PanelContext';
-import { fa } from '@/lib/api';
-import DepositModal from './DepositModal';
-import ServiceCatalog from './ServiceCatalog';
-import { initials } from '@/lib/helper';
+import { usePanel } from "@/context/PanelContext";
+
+import DepositModal from "./DepositModal";
+
+import { useAppStore } from "@/context/useApp";
+import PanelView from "./panelView";
+import { AnimatePresence, motion } from "framer-motion";
 
 export default function PanelShell() {
   const { me } = usePanel();
-  const [deposit, setDeposit] = useState(false);
-  if (!me) return <main dir="rtl" className="grid min-h-screen place-items-center overflow-x-hidden bg-[#070b14] px-4 text-white">در حال بارگذاری…</main>;
 
-  const { user, wallet } = me;
-  const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || 'کاربر تلگرام';
-
-  const go = (path: string) => {
-    window.location.href = path;
+  const { activeTab } = useAppStore();
+  if (!me)
+    return (
+      <main
+        dir="rtl"
+        className="grid min-h-screen place-items-center overflow-x-hidden bg-[#070b14] px-4 text-white"
+      >
+        در حال بارگذاری…
+      </main>
+    );
+  const views: Record<string, React.ReactNode> = {
+    home: <PanelView me={me} />,
+    deposit: <DepositModal />,
+    withdraw: <></>,
   };
-
   return (
-    <main dir="rtl" className="min-h-[100dvh] w-full max-w-[100vw] overflow-x-hidden bg-[#070b14] text-white">
-      <div className="mx-auto w-full max-w-2xl px-3 pb-24 pt-3 sm:px-5 sm:pt-5">
-        
-
-        <section className="min-w-0 overflow-hidden rounded-[26px] border border-white/10 bg-gradient-to-br from-cyan-400/20 to-violet-500/10 p-4 sm:rounded-[30px] sm:p-5">
-          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-            <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-[19px] bg-cyan-300 text-lg font-black text-black sm:h-16 sm:w-16">
-              {user.photoUrl ? <img src={user.photoUrl} alt={name} className="h-full w-full object-cover" /> : initials(user)}
-            </div>
-            <div className="min-w-0"><p className="text-xs text-white/45">خوش آمدید</p><h2 className="truncate text-lg font-black sm:text-xl">{name}</h2><p className="mt-1 truncate text-xs text-white/40">حساب، کیف پول و سفارش‌های شما</p></div>
-          </div>
-        </section>
-
-        <div className="mt-3"><button type="button" onClick={() => setDeposit(true)} className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[.045] p-3 text-right transition hover:bg-white/[.07]"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-cyan-300/10 text-cyan-200"><WalletCards size={21} /></span><span className="min-w-0 flex-1"><span className="block text-xs text-white/40">موجودی کیف پول</span><span className="mt-1 block truncate text-lg font-black">{fa(wallet?.balance ?? 0)} <small className="text-xs font-medium text-white/40">تومان</small></span></span><span className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-black">شارژ</span></button></div>
-
-        <div className="mt-7 flex min-w-0 items-end justify-between gap-3 sm:mt-8"><div className="min-w-0"><p className="text-xs font-bold text-cyan-300/60">سرویس‌ها</p><h2 className="mt-1 truncate text-xl font-black sm:text-2xl">خرید سرویس</h2></div><ShoppingBag className="shrink-0 text-white/35" size={21} /></div>
-        <ServiceCatalog />
-
-        <div className="mt-7 grid grid-cols-2 gap-2.5 sm:mt-8 sm:gap-3">
-          {[[Home, 'فعال‌سازی مرحله‌ای'], [CreditCard, 'پرداخت امن'], [WalletCards, 'مدیریت کیف پول'], [ShoppingBag, 'سفارش‌های من']].map(([Icon, title]) => { const I = Icon as typeof Home; return <button key={title as string} type="button" onClick={() => (title === 'سفارش‌های من' ? go('/panel/orders') : undefined)} className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/[.035] p-3 text-right transition hover:bg-white/[.06] sm:p-4"><I size={19} className="text-cyan-200/80" /><p className="mt-2 truncate text-xs text-white/60">{title as string}</p></button>; })}
-        </div>
-      </div>
-      {deposit && <DepositModal open={deposit} onClose={() => setDeposit(false)} />}
+    <main
+      dir="rtl"
+      className="min-h-[100dvh] w-full max-w-[100vw] overflow-x-hidden bg-[#070b14] text-white"
+    >
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeTab}
+          initial={{ opacity: 0, y: 0, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -10, scale: 0.98 }}
+          transition={{ duration: 0.2 }}
+          className="h-full w-full relative inset-0 owerflow-hidden"
+        >
+          {views[activeTab] || (
+            <div className="p-4 text-white">در حال ساخت...</div>
+          )}
+        </motion.div>
+      </AnimatePresence>
     </main>
   );
 }

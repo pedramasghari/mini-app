@@ -73,8 +73,9 @@ export default function ProfileCenter({ user, realtime, open, onOpenChange, onLo
       </button>
 
       {open && (
-        <div role="menu" className="absolute left-0 top-[calc(100%+10px)] z-60 bg-black backdrop-blur-xl w-[min(19rem,calc(100vw-1.5rem))] overflow-hidden rounded-[26px] border border-white/10 bg-[#111827]/98 p-2 shadow-2xl sm:left-auto sm:right-0 sm:w-80">
-          <div className="rounded-2xl bg-white/[.04] p-3">
+        <div role="menu" className="fixed z-100 w-full h-auto right-0  flex flex-col px-4 py-2 justify-content" onClick={() => onOpenChange(false)}>
+          <div  className="w-full rounded-[26px] border border-white/10 bg-[#000000]/95  ">
+          <div className="rounded-2xl  p-3">
             <div className="flex items-center gap-3">
               <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-white/10 text-cyan-200">
                 {user.photoUrl ? <img src={user.photoUrl} alt={name} className="h-full w-full object-cover" /> : <CircleUserRound size={22} />}
@@ -88,17 +89,18 @@ export default function ProfileCenter({ user, realtime, open, onOpenChange, onLo
           </div>
 
           <div className="flex flex-col mt-2 space-y-1">
-            <button type="button" role="menuitem" onClick={() => go('/panel/profile')} className="menu-item border-b-1 m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><UserRound size={17} /><span> پروفایل من</span></button>
-            <button type="button" role="menuitem" onClick={() => go('/panel/orders')} className="menu-item border-b-1 m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><ClipboardList size={17} /><span> سفارش‌های من</span></button>
-            <button type="button" role="menuitem" onClick={() => go('/panel/notifications')} className="menu-item border-b-1 m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><Bell size={17} /><span>اعلان‌ها</span> </button>
-            <button type="button" role="menuitem" onClick={() => go('/panel/settings')} className="menu-item border-b-1 m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><Settings size={17} /><span> تنظیمات</span></button>
+            
+            <button type="button" role="menuitem" onClick={() => go('/panel/orders')} className="  m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><ClipboardList size={17} /><span>سفارشات</span></button>    
+            <button type="button" role="menuitem" onClick={() => go('/panel/profile')} className=" m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><UserRound size={17} /><span> پروفایل من</span></button>
+            <button type="button" role="menuitem" onClick={() => go('/panel/settings')} className="  m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><Settings size={17} /><span> پشتیبانی</span></button>
           </div>
 
           <div className="my-2 border-t border-white/10" />
-          <div className="rounded-xl bg-cyan-400/[.06] px-3 py-2 text-[10px] leading-5 text-white/45">
+          <div className="rounded-xl bg-cyan-400/[.4] px-3 py-2 text-[10px] leading-5 text-white/85">
             <ShieldCheck size={14} className="mb-1 text-cyan-300" /> حساب شما با اتصال تلگرام محافظت می‌شود.
           </div>
-          <button type="button" role="menuitem" onClick={() => { onOpenChange(false); onLogout?.(); }} className="mt-2 flex w-full items-center gap-2 rounded-2xl px-3 py-3 text-sm font-bold text-red-300 transition hover:bg-red-400/10"><LogOut size={17} /> خروج از حساب</button>
+          <button type="button" role="menuitem" onClick={() => { onOpenChange(false); onLogout?.(); }} className="mt-2 flex w-full items-center gap-2 rounded-2xl px-3 py-3 text-sm font-bold text-red-300 transition hover:bg-red-500/95 hover:text-white/80"><LogOut size={17} /> خروج از حساب</button>
+        </div>
         </div>
       )}
     </div>

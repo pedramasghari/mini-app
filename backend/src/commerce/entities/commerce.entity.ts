@@ -18,7 +18,7 @@ export class Product {
   @Column({ length: 120 }) title!: string;
   @Column({ length: 500 }) description!: string;
   @Column({ type: 'decimal', precision: 30, scale: 8 }) price!: string;
-  @Column({ length: 10, default: 'USD' }) currency!: string;
+  @Column({ length: 10, default: 'IRT' }) currency!: string;
   @Column({ length: 80, default: 'box' }) icon!: string;
   @Column({ default: true }) active!: boolean;
   @Column({ default: true }) requiresGuide!: boolean;
@@ -54,7 +54,7 @@ export class Order {
   @Index() @Column('uuid') productId!: string;
   @Column({ length: 30, default: 'PENDING_PAYMENT' }) status!: string;
   @Column({ type: 'decimal', precision: 30, scale: 8 }) amount!: string;
-  @Column({ length: 10, default: 'USD' }) currency!: string;
+  @Column({ length: 10, default: 'IRT' }) currency!: string;
   @Column({ type: 'jsonb', default: {} }) metadata!: Record<string, unknown>;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
@@ -98,7 +98,7 @@ export class PaymentRequest {
   @Column('uuid', { nullable: true }) orderId!: string | null;
   @Column('uuid') paymentMethodId!: string;
   @Column({ type: 'decimal', precision: 30, scale: 8 }) amount!: string;
-  @Column({ length: 10, default: 'USD' }) currency!: string;
+  @Column({ length: 10, default: 'IRT' }) currency!: string;
   @Column({ length: 30, default: 'PENDING' }) status!: string;
   @Column({ type: 'text', nullable: true }) receiptPath!: string | null;
   @Column({ type: 'text', nullable: true }) adminReason!: string | null;
@@ -114,7 +114,7 @@ export class WalletTransaction {
   @Column({ type: 'decimal', precision: 30, scale: 8 }) amount!: string;
   @Column({ type: 'decimal', precision: 30, scale: 8 }) balanceBefore!: string;
   @Column({ type: 'decimal', precision: 30, scale: 8 }) balanceAfter!: string;
-  @Column({ length: 10, default: 'USD' }) currency!: string;
+  @Column({ length: 10, default: 'IRT' }) currency!: string;
   @Column({ type: 'varchar', length: 120, nullable: true }) referenceType!: string | null;
   @Column({ type: 'varchar', length: 120, nullable: true }) referenceId!: string | null;
   @Column({ type: 'text', nullable: true }) description!: string | null;

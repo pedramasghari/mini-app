@@ -28,7 +28,7 @@ export class CommerceService implements OnModuleInit {
     const exists = await this.services.findOne({ where: { slug: 'apple-id' } });
     if (exists) return;
     const service = await this.services.save(this.services.create({ slug: 'apple-id', title: 'اپل آیدی', description: 'راهنمای مرحله‌به‌مرحله ساخت و راه‌اندازی حساب اپل خودتان.', icon: 'apple', active: true }));
-    const product = await this.products.save(this.products.create({ serviceId: service.id, title: 'راهنمای راه‌اندازی اپل آیدی', description: 'راهنمای مرحله‌به‌مرحله برای راه‌اندازی حساب شخصی اپل.', price: '9.99', currency: 'USD', icon: 'apple', active: true, requiresGuide: true }));
+    const product = await this.products.save(this.products.create({ serviceId: service.id, title: 'راهنمای راه‌اندازی اپل آیدی', description: 'راهنمای مرحله‌به‌مرحله برای راه‌اندازی حساب شخصی اپل.', price: '500000', currency: 'IRT', icon: 'apple', active: true, requiresGuide: true }));
     const guide = await this.guides.save(this.guides.create({ productId: product.id, title: 'راهنمای فعال‌سازی اپل آیدی', description: 'مراحل را به‌ترتیب انجام دهید و فقط از اطلاعات متعلق به خودتان استفاده کنید.', active: true }));
     await this.steps.save([
       this.steps.create({ guideId: guide.id, position: 1, title: 'آماده‌سازی اطلاعات', content: 'یک ایمیل در اختیار خودتان و اطلاعات موردنیاز اپل را قبل از شروع آماده کنید.' }),

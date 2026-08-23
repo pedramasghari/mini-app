@@ -32,15 +32,17 @@ export default function NotificationCenter({ open, onOpenChange }: { open: boole
       </button>
 
       {open && (
-        <div role="menu" className="absolute left-0 top-[calc(100%+10px)] z-50 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-[26px] border border-white/10 bg-[#111827]/98 shadow-2xl backdrop-blur-2xl sm:left-auto sm:right-0 sm:w-80">
+        <div role="menu" className="fixed z-100 w-full h-auto right-0  flex flex-col px-4 py-2 justify-content" onClick={() => onOpenChange(false)}>
+          <div  className="w-full rounded-[26px] border border-white/10 bg-[#000000]/95  ">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div><b className="text-sm">اعلان‌ها</b><p className="mt-1 text-[10px] text-white/40">{unread.toLocaleString('fa-IR')} اعلان خوانده‌نشده</p></div>
             <button type="button" aria-label="بستن" onClick={() => onOpenChange(false)} className="grid h-8 w-8 place-items-center rounded-xl bg-white/5 text-white/40"><X size={15} /></button>
           </div>
-          <div className="max-h-[60vh] overflow-y-auto p-2">
+          <div className="min-h-[40vh] max-h-[60vh] overflow-y-auto p-2">
             {notifications.slice(0, 8).map((n) => <button key={n.id} type="button" role="menuitem" onClick={() => markRead(n.id)} className={`block w-full rounded-2xl p-3 text-right transition hover:bg-white/[.07] ${n.read ? 'opacity-50' : 'bg-white/5'}`}><p className="text-xs font-bold">{n.title}</p><p className="mt-1 text-[11px] leading-5 text-white/50">{n.message}</p></button>)}
             {!notifications.length && <p className="p-5 text-center text-xs text-white/40">اعلانی ندارید.</p>}
           </div>
+        </div>
         </div>
       )}
     </div>

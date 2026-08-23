@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
-    'smoking-million-mixed-entered.trycloudflare.com',
+    'banana-fred-refers-stuart.trycloudflare.com',
   ],
   rewrites: async () => [
     {
