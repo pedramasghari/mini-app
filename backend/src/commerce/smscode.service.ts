@@ -18,7 +18,7 @@ export class SmsCodeService implements OnModuleInit {
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly webhookUrl: string;
-  private webhookSecret = '';
+  private webhookSecret: string;
   private readonly reconcileTimer: NodeJS.Timeout;
 
   constructor(
@@ -37,6 +37,7 @@ export class SmsCodeService implements OnModuleInit {
     this.baseUrl = `https://api.smscode.gg/${version}`;
     this.token = config.get<string>('SMSCODE_API_TOKEN', '');
     this.webhookUrl = config.get<string>('SMSCODE_WEBHOOK_URL', '');
+    this.webhookSecret = config.get<string>('SMSCODE_WEBHOOK_SECRET', '');
     this.reconcileTimer = setInterval(() => void this.reconcilePending(), 15_000);
     this.reconcileTimer.unref?.();
   }
@@ -46,7 +47,8 @@ export class SmsCodeService implements OnModuleInit {
     if (this.webhookUrl) {
       try {
         const configured = await this.request<{ webhook_url: string; webhook_secret?: string }>('/webhook', { method: 'PATCH', body: JSON.stringify({ webhook_url: this.webhookUrl }) });
-        this.webhookSecret = configured.webhook_secret ?? '';
+        if (configured.webhook_secret) this.webhookSecret = configured.webhook_secret;
+        if (!this.webhookSecret) console.warn('[SMSCode] Webhook secret is not configured. Set SMSCODE_WEBHOOK_SECRET to the secret shown by SMSCode.');
       } catch (error) { console.error('[SMSCode] webhook configuration failed:', error instanceof Error ? error.message : error); }
     }
     await this.ensureAppleUkConfig();
@@ -143,10 +145,10 @@ export class SmsCodeService implements OnModuleInit {
   private isDefinitiveNoSideEffect(code: string, status: number) { return ['INSUFFICIENT_BALANCE', 'NO_OFFER_AVAILABLE', 'VALIDATION_ERROR', 'FORBIDDEN', 'UNAUTHORIZED'].includes(code) || (status >= 400 && status < 500 && !['REQUEST_IN_PROGRESS', 'CONFLICT'].includes(code)); }
   private publicProviderError(error: ProviderApiError) { if (error.code === 'NO_OFFER_AVAILABLE') return 'در حال حاضر شماره‌ای با فیلتر کشور و قیمت انتخاب‌شده موجود نیست.'; if (error.code === 'INSUFFICIENT_BALANCE') return 'موجودی سرویس شماره‌گذاری کافی نیست. لطفاً بعداً دوباره تلاش کنید.'; return error.message; }
 
-  async get(userId: string, localId: string) { const row = await this.orders.findOne({ where: { id: localId, userId } }); if (!row) throw new NotFoundException('سفارش شماره پیدا نشد.'); return this.sync(row); }
-  private async sync(row: SmsCodeOrder) { if (!row.providerOrderId) return { id: row.id, status: row.status, phoneNumber: row.phoneNumber, expiresAt: null, canResend: false, canCancel: false, canReplace: false, refunded: Boolean(row.refundedAt), chargedAmount: row.chargedAmount, currency: row.currency }; try { const provider = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`); return this.applyProviderState(row, provider); } catch (error) { if (error instanceof ProviderApiError && error.statusCode === 404) return this.snapshot(row, row.providerSnapshot as ProviderOrder); throw error; } }
-  async cancel(userId: string, localId: string) { const row = await this.getOwned(userId, localId); if (!row.providerOrderId) throw new BadRequestException('سفارش هنوز شماره‌ای از سرویس دریافت نکرده است.'); const current = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`); if (!current.can_cancel) throw new BadRequestException('لغو هنوز از طرف سرویس شماره‌گذاری مجاز نیست.'); await this.request('/orders/cancel', { method: 'POST', body: JSON.stringify({ id: Number(row.providerOrderId) }) }); return this.sync(row); }
-  async resend(userId: string, localId: string) { const row = await this.getOwned(userId, localId); if (!row.providerOrderId) throw new BadRequestException('سفارش هنوز فعال نشده است.'); const current = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`); if (!current.can_resend) throw new BadRequestException('ارسال مجدد هنوز مجاز نیست.'); await this.request('/orders/resend', { method: 'POST', body: JSON.stringify({ id: Number(row.providerOrderId) }) }); return this.sync(row); }
+  async get(userId: string, localId: string) { const row = await this.getOwned(userId, localId); return row.providerOrderId ? this.sync(row) : { id: row.id, status: row.status, phoneNumber: row.phoneNumber, expiresAt: row.expiresAt?.toISOString() ?? null, canResend: row.canResend, canCancel: row.canCancel, canReplace: row.canReplace, refunded: Boolean(row.refundedAt), chargedAmount: row.chargedAmount, currency: row.currency }; }
+
+  async sync(row: SmsCodeOrder) { if (!row.providerOrderId) return this.get(row.userId, row.id); const provider = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`); return this.applyProviderState(row, provider); }
+
   private async getOwned(userId: string, localId: string) { const row = await this.orders.findOne({ where: { id: localId, userId } }); if (!row) throw new NotFoundException('سفارش شماره پیدا نشد.'); return row; }
 
   async refundIfNeeded(row: SmsCodeOrder, reason: string) {
@@ -168,8 +170,12 @@ export class SmsCodeService implements OnModuleInit {
     if (a.length !== b.length || !timingSafeEqual(a, b)) throw new BadRequestException('Webhook signature is invalid.');
     const event = payload.event, providerOrderId = Number(payload.data?.order_id); if (!event || !Number.isInteger(providerOrderId)) throw new BadRequestException('Webhook payload is invalid.');
     const revision = Number(payload.data?.sms_revision ?? 0), eventKey = `${event}:${providerOrderId}:${event === 'order.otp_received' ? revision : 0}`;
-    try { await this.webhookEvents.insert(this.webhookEvents.create({ eventKey, event, providerOrderId: String(providerOrderId), payload: payload as unknown as Record<string, unknown>, processedAt: null, processingError: null })); }
-    catch (error) { if (error instanceof QueryFailedError && (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code === '23505') return { ok: true, duplicate: true }; throw error; }
+    try {
+      await this.webhookEvents.save(this.webhookEvents.create({ eventKey, event, providerOrderId: String(providerOrderId), payload, processedAt: null, processingError: null }));
+    } catch (error) {
+      if (error instanceof QueryFailedError && (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code === '23505') return { ok: true, duplicate: true };
+      throw error;
+    }
     const row = await this.orders.findOne({ where: { providerOrderId: String(providerOrderId) } }); if (!row) return { ok: true, ignored: true };
     if (event === 'order.otp_received') {
       if (revision >= row.smsRevision) { row.status = 'OTP_RECEIVED'; row.phoneNumber = payload.data?.phone_number ?? row.phoneNumber; row.smsRevision = revision; row.providerSnapshot = { ...(row.providerSnapshot ?? {}), webhook: payload.data }; await this.orders.save(row); await this.notifications.create(row.userId, { type: 'SMS_ORDER_OTP_RECEIVED', title: 'کد تأیید دریافت شد', message: payload.data?.otp_code ? `کد تأیید شما: ${payload.data.otp_code}` : 'پیامک تأیید دریافت شد؛ کد شناسایی‌شده‌ای در پیام وجود نداشت.', data: { orderId: row.id, providerOrderId, phoneNumber: row.phoneNumber, otpCode: payload.data?.otp_code ?? null, otpMessage: payload.data?.otp_message ?? null, smsRevision: revision } }); }
@@ -187,8 +193,8 @@ export class SmsCodeService implements OnModuleInit {
   async catalogProducts(params: { countryId?: number; platformId?: number; operatorId?: number; sort?: string; page?: number; limit?: number }) { const query = new URLSearchParams(); if (params.countryId) query.set('country_id', String(params.countryId)); if (params.platformId) query.set('platform_id', String(params.platformId)); if (params.operatorId !== undefined) query.set('operator_id', String(params.operatorId)); query.set('sort', params.sort ?? 'price_asc'); query.set('page', String(params.page ?? 1)); query.set('limit', String(Math.min(params.limit ?? 100, 1000))); return this.request<unknown>(`/catalog/products?${query.toString()}`); }
   async getServiceConfig(serviceId: string) { await this.services.findOneOrFail({ where: { id: serviceId } }); return this.configs.findOne({ where: { serviceId } }); }
   async saveServiceConfig(serviceId: string, input: Partial<ServiceSmsConfig>) { const service = await this.services.findOne({ where: { id: serviceId } }); if (!service) throw new NotFoundException('سرویس پیدا نشد.'); if (input.minProviderPrice !== undefined && input.minProviderPrice !== null && Number(input.minProviderPrice) < 0) throw new BadRequestException('حداقل قیمت معتبر نیست.'); if (input.maxProviderPrice !== undefined && input.maxProviderPrice !== null && Number(input.maxProviderPrice) < 0) throw new BadRequestException('حداکثر قیمت معتبر نیست.'); if (input.minProviderPrice != null && input.maxProviderPrice != null && Number(input.minProviderPrice) > Number(input.maxProviderPrice)) throw new BadRequestException('حداقل قیمت نمی‌تواند بیشتر از حداکثر قیمت باشد.'); let row = await this.configs.findOne({ where: { serviceId } }); if (!row) row = this.configs.create({ serviceId }); Object.assign(row, input); return this.configs.save(row); }
-  async configureWebhook(url?: string) { const target = url ?? this.webhookUrl; if (!target) throw new BadRequestException('SMSCODE_WEBHOOK_URL تنظیم نشده است.'); if (!/^https:\/\//i.test(target)) throw new BadRequestException('آدرس Webhook باید HTTPS باشد.'); const data = await this.request<{ webhook_url: string; webhook_secret?: string }>('/webhook', { method: 'PATCH', body: JSON.stringify({ webhook_url: target }) }); this.webhookSecret = data.webhook_secret ?? this.webhookSecret; return { webhookUrl: data.webhook_url, configured: true, secretConfigured: Boolean(this.webhookSecret) }; }
-  async webhookStatus() { return this.request<{ webhook_url: string; webhook_secret?: string }>('/webhook'); }
+  async configureWebhook(url?: string) { const target = url ?? this.webhookUrl; if (!target) throw new BadRequestException('SMSCODE_WEBHOOK_URL تنظیم نشده است.'); if (!/^https:\/\//i.test(target)) throw new BadRequestException('آدرس Webhook باید HTTPS باشد.'); const data = await this.request<{ webhook_url: string; webhook_secret?: string }>('/webhook', { method: 'PATCH', body: JSON.stringify({ webhook_url: target }) }); if (data.webhook_secret) this.webhookSecret = data.webhook_secret; return { webhookUrl: data.webhook_url, configured: true, secretConfigured: Boolean(this.webhookSecret), webhookSecret: data.webhook_secret ?? undefined }; }
+  async webhookStatus() { const data = await this.request<{ webhook_url: string; webhook_secret?: string }>('/webhook'); if (data.webhook_secret) this.webhookSecret = data.webhook_secret; return { webhookUrl: data.webhook_url, secretConfigured: Boolean(this.webhookSecret) }; }
 
   private async reconcilePending() { if (!this.token) return; const pending = await this.orders.find({ where: { status: 'PROVIDER_PENDING' }, order: { createdAt: 'ASC' }, take: 10 }); for (const row of pending) { if (Date.now() - row.createdAt.getTime() > 10 * 60_000) continue; const payload = (row.providerSnapshot?.payload ?? {}) as Record<string, unknown>; try { const data = await this.createProviderWithSameKey(payload, row.idempotencyKey); const provider = data.orders?.[0]; if (provider) await this.applyProviderState(row, provider); } catch (error) { if (error instanceof ProviderApiError && this.isDefinitiveNoSideEffect(error.code, error.statusCode)) await this.refundIfNeeded(row, `RECONCILE_${error.code}`); } } }
 }
