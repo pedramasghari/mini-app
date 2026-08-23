@@ -24,7 +24,7 @@ export class AdminBotRuntimeService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    const sendApp = async (ctx: Context) => {
+    this.bot.on('message', async (ctx) => {
       const appUrl = this.appUrl();
       if (!appUrl) {
         await ctx.reply('آدرس Mini App تنظیم نشده است.');
@@ -34,11 +34,7 @@ export class AdminBotRuntimeService implements OnModuleInit, OnModuleDestroy {
       await ctx.reply('برای ورود به Mini App روی دکمه زیر بزنید:', {
         reply_markup: new InlineKeyboard().url('🚀 ورود به Mini App', appUrl),
       });
-    };
-
-    this.bot.command('start', sendApp);
-    this.bot.command('menu', sendApp);
-    this.bot.on('message', sendApp);
+    });
 
     this.bot.catch((error) => {
       this.logger.error('Telegram bot error', error.error);
@@ -95,7 +91,7 @@ export class AdminBotRuntimeService implements OnModuleInit, OnModuleDestroy {
   async sendToTelegram(chatId: string | number, message: string) {
     if (!this.token()) return false;
     try {
-      await this.bot.api.sendMessage(chatId, message, { parse_mode: 'HTML' });
+      await this.bot.api.sendMessage(chatId, message);
       return true;
     } catch (error) {
       this.logger.warn(
