@@ -75,6 +75,28 @@ export class Order {
   @UpdateDateColumn() updatedAt!: Date;
 }
 
+@Entity('smscode_orders')
+@Index('uq_smscode_provider_order', ['providerOrderId'], { unique: true })
+@Index('idx_smscode_user', ['userId'])
+export class SmsCodeOrder {
+  @PrimaryGeneratedColumn('uuid') id!: string;
+  @Column('uuid') userId!: string;
+  @Column('uuid', { nullable: true }) productId!: string | null;
+  @Column({ type: 'bigint' }) providerOrderId!: string;
+  @Column({ length: 30, default: 'ACTIVE' }) status!: string;
+  @Column({ length: 40, nullable: true }) phoneNumber!: string | null;
+  @Column({ type: 'timestamptz', nullable: true }) expiresAt!: Date | null;
+  @Column({ type: 'timestamptz', nullable: true }) resendAvailableAt!: Date | null;
+  @Column({ type: 'timestamptz', nullable: true }) cancelAvailableAt!: Date | null;
+  @Column({ type: 'timestamptz', nullable: true }) replaceAvailableAt!: Date | null;
+  @Column({ default: false }) canResend!: boolean;
+  @Column({ default: false }) canCancel!: boolean;
+  @Column({ default: false }) canReplace!: boolean;
+  @Column({ type: 'jsonb', default: {} }) providerSnapshot!: Record<string, unknown>;
+  @CreateDateColumn() createdAt!: Date;
+  @UpdateDateColumn() updatedAt!: Date;
+}
+
 @Entity('order_inputs')
 export class OrderInput {
   @PrimaryGeneratedColumn('uuid') id!: string;
@@ -110,7 +132,7 @@ export class PaymentMethod {
 }
 
 @Entity('payment_requests')
-@Index('uq_one_pending_deposit_per_user', ['userId'], { unique: true, where: '"status" = \'PENDING\'' })
+@Index('uq_one_pending_deposit_per_user', ['userId'], { unique: true, where: '\"status\" = \'PENDING\'' })
 export class PaymentRequest {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index() @Column('uuid') userId!: string;
