@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { WalletsModule } from '../wallets/wallets.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { Wallet } from '../wallets/entities/wallet.entity';
 import { User } from '../users/entities/user.entity';
 import { ActivationGuide, ActivationProgress, ActivationStep, Order, OrderInput, PaymentMethod, PaymentRequest, Product, Service, ServiceSmsConfig, SmsCodeOrder, SmsCodeWebhookEvent, WalletTransaction } from './entities/commerce.entity';
 import { CommerceService } from './commerce.service';
@@ -16,6 +17,7 @@ import { SmsCodeService } from './smscode.service';
     NotificationsModule,
     TypeOrmModule.forFeature([
       User,
+      Wallet,
       Service,
       ServiceSmsConfig,
       Product,
