@@ -1,26 +1,15 @@
-# Admin Bot Module
+# Telegram Bot
 
-ربات تلگرام فقط برای ادمین‌هاست و کاربران عادی فقط دکمه باز کردن Mini App را دریافت می‌کنند.
+The Telegram bot is intentionally kept minimal.
 
-## ساختار
+- Any incoming message receives the Mini App launch link.
+- The bot does not contain finance, user, order, service, or administration workflows.
+- Charge-related notifications are sent through `NotificationsService` to the affected user and configured administrators.
+- Admin management lives inside the Mini App under `/admin/*`.
 
-```text
-admin-bot/
-├── admin-bot.module.ts
-├── admin-bot.service.ts
-├── admin-bot.types.ts
-├── keyboard/
-│   └── admin-bot.keyboard.ts
-├── conversations/
-│   └── admin-bot.conversation.service.ts
-├── finance/
-│   └── admin-bot.finance.service.ts
-├── orders/
-│   └── admin-bot.orders.service.ts
-├── users/
-│   └── admin-bot.users.service.ts
-└── services/
-    └── admin-bot.service-management.service.ts
-```
+Configuration:
 
-Keyboard، Conversation، مالی، سفارشات، کاربران و مدیریت سرویس‌ها از هم تفکیک شده‌اند. دسترسی مدیریتی باید همیشه با ADMIN_TELEGRAM_IDS کنترل شود و کاربران عادی فقط Mini App را دریافت کنند.
+- `TELEGRAM_BOT_TOKEN`
+- `MINI_APP_URL`
+- `ADMIN_TELEGRAM_IDS`
+- `TELEGRAM_PROXY_URL`
