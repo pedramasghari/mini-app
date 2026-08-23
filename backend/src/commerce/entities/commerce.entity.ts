@@ -1,16 +1,33 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
+export type ServiceMedia = {
+  type: 'image' | 'video';
+  url: string;
+  title?: string;
+  thumbnailUrl?: string;
+};
+
+export type ServiceFaq = {
+  question: string;
+  answer: string;
+};
+
 @Entity('services')
 export class Service {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index({ unique: true }) @Column({ length: 80 }) slug!: string;
   @Column({ length: 120 }) title!: string;
   @Column({ length: 500 }) description!: string;
+  @Column({ type: 'text', nullable: true }) serverText!: string | null;
+  @Column({ type: 'text', nullable: true }) rulesText!: string | null;
+  @Column({ type: 'jsonb', default: [] }) media!: ServiceMedia[];
+  @Column({ type: 'jsonb', default: [] }) faqs!: ServiceFaq[];
   @Column({ length: 80, default: 'box' }) icon!: string;
   @Column({ default: true }) active!: boolean;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }
+
 @Entity('products')
 export class Product {
   @PrimaryGeneratedColumn('uuid') id!: string;
@@ -25,6 +42,7 @@ export class Product {
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }
+
 @Entity('activation_guides')
 export class ActivationGuide {
   @PrimaryGeneratedColumn('uuid') id!: string;
@@ -35,6 +53,7 @@ export class ActivationGuide {
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }
+
 @Entity('activation_steps')
 export class ActivationStep {
   @PrimaryGeneratedColumn('uuid') id!: string;
@@ -47,6 +66,7 @@ export class ActivationStep {
   @Column({ type: 'varchar', length: 80, nullable: true }) inputKey!: string | null;
   @Column({ type: 'varchar', length: 160, nullable: true }) inputLabel!: string | null;
 }
+
 @Entity('orders')
 export class Order {
   @PrimaryGeneratedColumn('uuid') id!: string;
@@ -59,6 +79,7 @@ export class Order {
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }
+
 @Entity('order_inputs')
 export class OrderInput {
   @PrimaryGeneratedColumn('uuid') id!: string;
@@ -67,6 +88,7 @@ export class OrderInput {
   @Column({ type: 'text' }) value!: string;
   @CreateDateColumn() createdAt!: Date;
 }
+
 @Entity('activation_progress')
 export class ActivationProgress {
   @PrimaryGeneratedColumn('uuid') id!: string;
@@ -78,6 +100,7 @@ export class ActivationProgress {
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }
+
 @Entity('payment_methods')
 export class PaymentMethod {
   @PrimaryGeneratedColumn('uuid') id!: string;
@@ -90,6 +113,7 @@ export class PaymentMethod {
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }
+
 @Entity('payment_requests')
 @Index('uq_one_pending_deposit_per_user', ['userId'], { unique: true, where: '"status" = \'PENDING\'' })
 export class PaymentRequest {
@@ -105,6 +129,7 @@ export class PaymentRequest {
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }
+
 @Entity('wallet_transactions')
 export class WalletTransaction {
   @PrimaryGeneratedColumn('uuid') id!: string;
