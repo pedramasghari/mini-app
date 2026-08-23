@@ -58,7 +58,7 @@ export class NotificationsService {
   ) {
     if (!this.isChargeNotification(notification.type)) return;
 
-    const user = await this.users.findByTelegramId(userId).catch(() => null);
+    const user = await this.users.findById(userId).catch(() => null);
     const telegramId = user?.telegramId ?? null;
 
     const text = [
