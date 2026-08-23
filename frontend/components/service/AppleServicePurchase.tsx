@@ -42,6 +42,7 @@ function formatTimer(seconds: number) {
 }
 
 export default function AppleServicePurchase({ service, product, guide }: Props) {
+  const storageKey = `apple-guide-state:${product.id}`;
   const [started, setStarted] = useState(false);
   const [step, setStep] = useState(0);
   const [smsOrder, setSmsOrder] = useState<SmsOrder | null>(null);
@@ -55,6 +56,20 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
   const steps = useMemo(() => (guide?.steps ?? []).slice().sort((a, b) => a.position - b.position), [guide]);
   const current = steps[step];
   const activeSms = Boolean(smsOrder && !TERMINAL.has(smsOrder.status));
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || "null") as { started?: boolean; step?: number } | null;
+      if (saved) {
+        setStarted(Boolean(saved.started));
+        if (typeof saved.step === "number") setStep(Math.max(0, saved.step));
+      }
+    } catch {}
+  }, [storageKey]);
+
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, JSON.stringify({ started, step })); } catch {}
+  }, [storageKey, started, step]);
 
   const syncSmsOrder = useCallback(async (id: string, silent = true) => {
     try {
@@ -77,6 +92,20 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
       return null;
     }
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api<SmsOrder | null>(`smscode/orders/active?serviceId=${encodeURIComponent(service.id)}`)
+      .then((next) => {
+        if (cancelled || !next) return;
+        setSmsOrder(next);
+        setTimer(remainingSeconds(next.expiresAt));
+        lastStatus.current = next.status;
+        notifiedRevision.current = next.smsRevision ?? 0;
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [service.id]);
 
   useEffect(() => {
     if (!smsOrder?.id || TERMINAL.has(smsOrder.status)) return;
@@ -122,9 +151,7 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
       toast.success("درخواست ارسال مجدد ثبت شد.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ارسال مجدد ناموفق بود.");
-    } finally {
-      setSmsAction(null);
-    }
+    } finally { setSmsAction(null); }
   }
 
   async function cancel() {
@@ -137,9 +164,7 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
       toast.success("شماره لغو شد؛ وجه پس از تأیید سرویس به کیف پول برمی‌گردد.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "لغو شماره ناموفق بود.");
-    } finally {
-      setSmsAction(null);
-    }
+    } finally { setSmsAction(null); }
   }
 
   async function copyPhone() {
@@ -149,16 +174,14 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
       setCopied(true);
       toast.success("شماره کپی شد.");
       window.setTimeout(() => setCopied(false), 1400);
-    } catch {
-      toast.error("کپی شماره انجام نشد.");
-    }
+    } catch { toast.error("کپی شماره انجام نشد."); }
   }
 
   const guideSection = !guide || !steps.length || product.requiresGuide === false ? (
     <section className="flex h-[560px] flex-col rounded-[28px] border border-white/10 bg-white/[.035] p-5 sm:p-7">
       <div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-cyan-300/10 text-cyan-200"><PlayCircle size={22} /></div><div><span className="text-xs text-cyan-300">سرویس</span><h2 className="mt-1 text-lg font-black">{product.title}</h2></div></div>
       <div className="mt-5 flex-1 overflow-y-auto"><p className="whitespace-pre-line text-sm leading-8 text-white/55">{product.description || service.description}</p></div>
-      <button className="mt-5 h-12 shrink-0 rounded-2xl bg-cyan-300 px-5 text-sm font-black text-slate-950">شروع</button>
+      <button onClick={() => setStarted(true)} className="mt-5 h-12 shrink-0 rounded-2xl bg-cyan-300 px-5 text-sm font-black text-slate-950">شروع</button>
     </section>
   ) : (
     <section className="h-[700px] overflow-hidden rounded-[28px] border border-white/10 bg-white/[.035] p-4 sm:p-6">
@@ -174,31 +197,19 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
           <div className="mt-4 flex h-1.5 shrink-0 gap-1.5">{steps.map((item, index) => <button aria-label={`مرحله ${index + 1}`} key={item.id} onClick={() => index <= step && setStep(index)} className={`h-1.5 flex-1 rounded-full transition ${index <= step ? "bg-cyan-300" : "bg-white/10"}`} />)}</div>
           <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
             <AnimatePresence mode="wait" initial={false}>
-              <motion.div key={current.id} initial={{ opacity: 0, x: 14 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -14 }} transition={{ duration: 0.16 }} className="flex h-full min-h-0 flex-col">
-                <div className="h-[285px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-                  {current.mediaUrl ? current.mediaType === "video" ? <video className="h-full w-full object-contain" src={current.mediaUrl} controls playsInline preload="metadata" /> : <img className="h-full w-full object-contain" src={current.mediaUrl} alt={current.title} loading="eager" decoding="async" /> : <div className="grid h-full place-items-center text-xs text-white/25">این مرحله مدیا ندارد</div>}
-                </div>
+              {current && <motion.div key={current.id} initial={{ opacity: 0, x: 14 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -14 }} transition={{ duration: 0.16 }} className="flex h-full min-h-0 flex-col">
+                <div className="h-[285px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black/20">{current.mediaUrl ? current.mediaType === "video" ? <video className="h-full w-full object-contain" src={current.mediaUrl} controls playsInline preload="metadata" /> : <img className="h-full w-full object-contain" src={current.mediaUrl} alt={current.title} loading="eager" decoding="async" /> : <div className="grid h-full place-items-center text-xs text-white/25">این مرحله مدیا ندارد</div>}</div>
                 <div className="mt-4 min-h-0 flex-1 overflow-y-auto px-1 pb-2"><h3 className="text-lg font-black">{current.title}</h3><p className="mt-3 whitespace-pre-line text-sm leading-8 text-white/60">{current.content}</p>{current.requiresInput && <div className="mt-5"><label className="mb-2 block text-xs font-bold text-white/60">{current.inputLabel || "اطلاعات مورد نیاز"}</label><input className="w-full rounded-2xl border border-white/10 bg-white/[.045] px-4 py-3 text-sm outline-none focus:border-cyan-300/50" placeholder={current.inputLabel || ""} /></div>}</div>
-              </motion.div>
+              </motion.div>}
             </AnimatePresence>
           </div>
-          <div className="mt-4 flex h-10 shrink-0 items-center justify-between gap-3 border-t border-white/5 pt-3">
-            <button disabled={step === 0} onClick={() => setStep(value => Math.max(0, value - 1))} className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-white/10 px-2.5 text-[11px] text-white/55 disabled:opacity-20"><ArrowRight size={13} /> قبلی</button>
-            <div className="flex items-center gap-1.5">{steps.map((item, index) => <span key={item.id} className={`h-1.5 w-1.5 rounded-full transition ${index === step ? "scale-125 bg-cyan-300" : "bg-white/20"}`} />)}</div>
-            <button disabled={step === steps.length - 1} onClick={() => setStep(value => Math.min(steps.length - 1, value + 1))} className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-white/10 px-2.5 text-[11px] text-white/55 disabled:opacity-20">بعدی <ArrowLeft size={13} /></button>
-          </div>
+          <div className="mt-4 flex h-10 shrink-0 items-center justify-between gap-3 border-t border-white/5 pt-3"><button disabled={step === 0} onClick={() => setStep(value => Math.max(0, value - 1))} className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-white/10 px-2.5 text-[11px] text-white/55 disabled:opacity-20"><ArrowRight size={13} /> قبلی</button><div className="flex items-center gap-1.5">{steps.map((item, index) => <span key={item.id} className={`h-1.5 w-1.5 rounded-full transition ${index === step ? "scale-125 bg-cyan-300" : "bg-white/20"}`} />)}</div><button disabled={step === steps.length - 1} onClick={() => setStep(value => Math.min(steps.length - 1, value + 1))} className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-white/10 px-2.5 text-[11px] text-white/55 disabled:opacity-20">بعدی <ArrowLeft size={13} /></button></div>
         </div>
       )}
     </section>
   );
 
-  return (
-    <div className="mt-5 space-y-3">
-      {smsOrder && <SmsOrderCard order={smsOrder} timer={timer} copied={copied} action={smsAction} onCopy={() => void copyPhone()} onResend={() => void resend()} onCancel={() => void cancel()} />}
-      {guideSection}
-      <RequestNumberButton loading={smsLoading} disabled={activeSms} onClick={() => void requestNumber()} />
-    </div>
-  );
+  return <div className="mt-5 space-y-3">{smsOrder && <SmsOrderCard order={smsOrder} timer={timer} copied={copied} action={smsAction} onCopy={() => void copyPhone()} onResend={() => void resend()} onCancel={() => void cancel()} />}{guideSection}<RequestNumberButton loading={smsLoading} disabled={activeSms} onClick={() => void requestNumber()} /></div>;
 }
 
 function statusText(status: string) {
@@ -218,23 +229,5 @@ function SmsOrderCard({ order, timer, copied, action, onCopy, onResend, onCancel
   const canResend = order.canResend && !action;
   const canCancel = order.canCancel && !action;
   const timerText = terminal ? "--:--" : formatTimer(timer);
-  return <section className="overflow-hidden rounded-[22px] border border-white/10 bg-[#080d18] shadow-xl shadow-black/10">
-    <div className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2"><span className="truncate text-sm font-black text-cyan-300">#{order.providerOrderId ?? "—"}</span><span className={`rounded-md px-2 py-0.5 text-[9px] font-bold ${order.status === "ACTIVE" ? "bg-cyan-400/10 text-cyan-300" : order.status === "OTP_RECEIVED" ? "bg-emerald-400/10 text-emerald-300" : "bg-white/10 text-white/45"}`}>{order.status}</span></div>
-        <div className="mt-3 text-[10px] font-bold tracking-wider text-white/30">PHONE</div>
-        <div className="mt-1 flex items-center gap-2"><span className="truncate text-base font-black tracking-wide text-white">{order.phoneNumber ?? "در حال دریافت شماره..."}</span>{order.phoneNumber && <button onClick={onCopy} className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-white/10 text-white/45 hover:bg-white/5" aria-label="کپی شماره">{copied ? <Check size={14} /> : <Copy size={14} />}</button>}</div>
-        {order.otpCode && <div className="mt-3 rounded-xl bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-300">کد OTP: <span className="text-sm tracking-[0.2em]">{order.otpCode}</span></div>}
-        {order.otpMessage && !order.otpCode && <p className="mt-3 line-clamp-2 text-[11px] leading-5 text-white/45">{order.otpMessage}</p>}
-      </div>
-      <div className="pt-1 text-sm font-black tabular-nums text-cyan-300">{timerText}</div>
-    </div>
-    <div className="grid grid-cols-4 border-t border-white/5">
-      <button disabled className="flex h-9 items-center justify-center gap-1 text-[10px] text-white/15"><CheckCircle2 size={12}/> DONE</button>
-      <button disabled={!canResend} onClick={onResend} className="flex h-9 items-center justify-center gap-1 border-x border-white/5 text-[10px] text-white/45 disabled:opacity-20">{action === "resend" ? <Loader2 className="animate-spin" size={12}/> : <RefreshCw size={12}/>} RESEND</button>
-      <button disabled={!canCancel} onClick={onCancel} className="flex h-9 items-center justify-center gap-1 text-[10px] text-white/45 disabled:opacity-20"><X size={12}/> CANCEL</button>
-      <button disabled={!order.canReplace} onClick={() => toast.info("Replace هنوز توسط API عمومی SMSCode قابل اجرا نیست.")} className="flex h-9 items-center justify-center gap-1 border-r border-white/5 text-[10px] text-white/45 disabled:opacity-20"><RefreshCw size={12}/> REPLACE</button>
-    </div>
-    {order.refunded && <div className="border-t border-emerald-400/10 bg-emerald-400/5 px-4 py-2 text-[10px] text-emerald-300">وجه این سفارش برگشت داده شده است.</div>}
-  </section>;
+  return <section className="overflow-hidden rounded-[22px] border border-white/10 bg-[#080d18] shadow-xl shadow-black/10"><div className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3"><div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate text-sm font-black text-cyan-300">#{order.providerOrderId ?? "—"}</span><span className={`rounded-md px-2 py-0.5 text-[9px] font-bold ${order.status === "ACTIVE" ? "bg-cyan-400/10 text-cyan-300" : order.status === "OTP_RECEIVED" ? "bg-emerald-400/10 text-emerald-300" : "bg-white/10 text-white/45"}`}>{order.status}</span></div><div className="mt-3 text-[10px] font-bold tracking-wider text-white/30">PHONE</div><div className="mt-1 flex items-center gap-2"><span className="truncate text-base font-black tracking-wide text-white">{order.phoneNumber ?? "در حال دریافت شماره..."}</span>{order.phoneNumber && <button onClick={onCopy} className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-white/10 text-white/45 hover:bg-white/5" aria-label="کپی شماره">{copied ? <Check size={14} /> : <Copy size={14} />}</button>}</div>{order.otpCode && <div className="mt-3 rounded-xl bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-300">کد OTP: <span className="text-sm tracking-[0.2em]">{order.otpCode}</span></div>}{order.otpMessage && !order.otpCode && <p className="mt-3 line-clamp-2 text-[11px] leading-5 text-white/45">{order.otpMessage}</p>}</div><div className="pt-1 text-sm font-black tabular-nums text-cyan-300">{timerText}</div></div><div className="grid grid-cols-4 border-t border-white/5"><button disabled className="flex h-9 items-center justify-center gap-1 text-[10px] text-white/15"><CheckCircle2 size={12}/> DONE</button><button disabled={!canResend} onClick={onResend} className="flex h-9 items-center justify-center gap-1 border-x border-white/5 text-[10px] text-white/45 disabled:opacity-20">{action === "resend" ? <Loader2 className="animate-spin" size={12}/> : <RefreshCw size={12}/>} RESEND</button><button disabled={!canCancel} onClick={onCancel} className="flex h-9 items-center justify-center gap-1 text-[10px] text-white/45 disabled:opacity-20"><X size={12}/> CANCEL</button><button disabled={!order.canReplace} onClick={() => toast.info("Replace هنوز توسط API عمومی SMSCode قابل اجرا نیست.")} className="flex h-9 items-center justify-center gap-1 border-r border-white/5 text-[10px] text-white/45 disabled:opacity-20"><RefreshCw size={12}/> REPLACE</button></div>{order.refunded && <div className="border-t border-emerald-400/10 bg-emerald-400/5 px-4 py-2 text-[10px] text-emerald-300">وجه این سفارش برگشت داده شده است.</div>}</section>;
 }
