@@ -4,18 +4,12 @@ import { DataSource, QueryFailedError, Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Wallet } from '../wallets/entities/wallet.entity';
-import { ActivationGuide, ActivationProgress, ActivationStep, Order, OrderInput, PaymentMethod, PaymentRequest, Product, Service, ServiceFaq, ServiceMedia, WalletTransaction } from './entities/commerce.entity';
+import { ActivationGuide, ActivationProgress, ActivationStep, GuideMediaType, Order, OrderInput, PaymentMethod, PaymentRequest, Product, Service, ServiceFaq, WalletTransaction } from './entities/commerce.entity';
 
-export type CreateServiceInput = {
-  slug: string;
-  title: string;
-  description: string;
-  icon?: string;
-  serverText?: string | null;
-  rulesText?: string | null;
-  media?: ServiceMedia[];
-  faqs?: ServiceFaq[];
-};
+export type CreateServiceInput = { slug: string; title: string; description: string; icon?: string; serverText?: string | null; rulesText?: string | null; faqs?: ServiceFaq[] };
+export type CreateProductInput = { serviceId: string; title: string; description: string; price: string; currency?: string; icon?: string; active?: boolean; requiresGuide?: boolean };
+export type GuideStepInput = { title: string; content: string; mediaType?: GuideMediaType | null; mediaUrl?: string | null; requiresInput?: boolean; inputKey?: string | null; inputLabel?: string | null };
+export type GuideInput = { title: string; description?: string | null; active?: boolean; steps?: GuideStepInput[] };
 
 @Injectable()
 export class CommerceService implements OnModuleInit {
@@ -39,72 +33,90 @@ export class CommerceService implements OnModuleInit {
     const exists = await this.services.findOne({ where: { slug: 'apple-id' } });
     if (exists) return;
     const service = await this.services.save(this.services.create({
-      slug: 'apple-id', title: 'اپل آیدی',
-      description: 'راهنمای مرحله‌به‌مرحله ساخت و راه‌اندازی حساب اپل خودتان.',
-      serverText: 'سرویس فعال‌سازی اپل آیدی با راهنمای مرحله‌به‌مرحله.',
-      rulesText: 'لطفاً اطلاعات متعلق به خودتان را وارد کنید و قوانین سرویس را قبل از خرید مطالعه کنید.',
-      media: [], faqs: [], icon: 'apple', active: true,
+      slug: 'apple-id', title: 'اپل آیدی', description: 'راهنمای مرحله‌به‌مرحله ساخت و راه‌اندازی حساب اپل خودتان.',
+      serverText: 'سرویس فعال‌سازی اپل آیدی با راهنمای مرحله‌به‌مرحله.', rulesText: 'لطفاً اطلاعات متعلق به خودتان را وارد کنید و قوانین سرویس را قبل از خرید مطالعه کنید.',
+      faqs: [], icon: 'apple', active: true,
     }));
     const product = await this.products.save(this.products.create({ serviceId: service.id, title: 'راهنمای راه‌اندازی اپل آیدی', description: 'راهنمای مرحله‌به‌مرحله برای راه‌اندازی حساب شخصی اپل.', price: '500000', currency: 'IRT', icon: 'apple', active: true, requiresGuide: true }));
     const guide = await this.guides.save(this.guides.create({ productId: product.id, title: 'راهنمای فعال‌سازی اپل آیدی', description: 'مراحل را به‌ترتیب انجام دهید و فقط از اطلاعات متعلق به خودتان استفاده کنید.', active: true }));
     await this.steps.save([
-      this.steps.create({ guideId: guide.id, position: 1, title: 'آماده‌سازی اطلاعات', content: 'یک ایمیل در اختیار خودتان و اطلاعات موردنیاز اپل را قبل از شروع آماده کنید.' }),
-      this.steps.create({ guideId: guide.id, position: 2, title: 'شروع ساخت حساب اپل', content: 'فرآیند رسمی ساخت حساب اپل را باز کنید و دستورالعمل‌های نمایش‌داده‌شده را دنبال کنید.' }),
-      this.steps.create({ guideId: guide.id, position: 3, title: 'وارد کردن اطلاعات شخصی', content: 'در صورت درخواست، نام، تاریخ تولد، ایمیل و یک گذرواژه قوی متعلق به خودتان را وارد کنید.', requiresInput: true, inputKey: 'email', inputLabel: 'ایمیل' }),
-      this.steps.create({ guideId: guide.id, position: 4, title: 'تکمیل تأیید هویت', content: 'هر مرحله تأییدی را که اپل درخواست می‌کند، با روش‌های تأیید در دسترس خودتان تکمیل کنید.' }),
-      this.steps.create({ guideId: guide.id, position: 5, title: 'پایان راه‌اندازی', content: 'اطلاعات حساب را بررسی کنید، در صورت نیاز شرایط اپل را بپذیرید و راه‌اندازی را به پایان برسانید.' }),
+      this.steps.create({ guideId: guide.id, position: 1, title: 'آماده‌سازی اطلاعات', content: 'یک ایمیل در اختیار خودتان و اطلاعات موردنیاز اپل را قبل از شروع آماده کنید.', mediaType: null, mediaUrl: null }),
+      this.steps.create({ guideId: guide.id, position: 2, title: 'شروع ساخت حساب اپل', content: 'فرآیند رسمی ساخت حساب اپل را باز کنید و دستورالعمل‌های نمایش‌داده‌شده را دنبال کنید.', mediaType: null, mediaUrl: null }),
+      this.steps.create({ guideId: guide.id, position: 3, title: 'وارد کردن اطلاعات شخصی', content: 'در صورت درخواست، نام، تاریخ تولد، ایمیل و یک گذرواژه قوی متعلق به خودتان را وارد کنید.', mediaType: null, mediaUrl: null, requiresInput: true, inputKey: 'email', inputLabel: 'ایمیل' }),
+      this.steps.create({ guideId: guide.id, position: 4, title: 'تکمیل تأیید هویت', content: 'هر مرحله تأییدی را که اپل درخواست می‌کند، با روش‌های تأیید در دسترس خودتان تکمیل کنید.', mediaType: null, mediaUrl: null }),
+      this.steps.create({ guideId: guide.id, position: 5, title: 'پایان راه‌اندازی', content: 'اطلاعات حساب را بررسی کنید، در صورت نیاز شرایط اپل را بپذیرید و راه‌اندازی را به پایان برسانید.', mediaType: null, mediaUrl: null }),
     ]);
   }
 
   async current(token?: string) { if (!token) throw new UnauthorizedException('جلسه ورود معتبر نیست.'); return this.auth.getSession(token); }
 
-  listServices(includeInactive = false) {
-    return this.services.find({ where: includeInactive ? {} : { active: true }, order: { createdAt: 'ASC' } });
-  }
-
-  async getService(id: string) {
-    const service = await this.services.findOne({ where: { id } });
-    if (!service) throw new NotFoundException('سرویس پیدا نشد.');
-    return service;
-  }
+  listServices(includeInactive = false) { return this.services.find({ where: includeInactive ? {} : { active: true }, order: { createdAt: 'ASC' } }); }
+  async getService(id: string) { const service = await this.services.findOne({ where: { id } }); if (!service) throw new NotFoundException('سرویس پیدا نشد.'); return service; }
 
   async createService(input: CreateServiceInput) {
     const slug = input.slug.trim().toLowerCase();
     if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(slug)) throw new BadRequestException('شناسه سرویس باید انگلیسی و شامل حروف، عدد و خط تیره باشد.');
     if (!input.title.trim() || !input.description.trim()) throw new BadRequestException('عنوان و توضیحات سرویس الزامی است.');
-    const exists = await this.services.findOne({ where: { slug } });
-    if (exists) throw new BadRequestException('این شناسه سرویس قبلاً ثبت شده است.');
-    return this.services.save(this.services.create({ slug, title: input.title.trim(), description: input.description.trim(), icon: input.icon?.trim() || 'box', serverText: input.serverText?.trim() || null, rulesText: input.rulesText?.trim() || null, media: input.media ?? [], faqs: input.faqs ?? [], active: true }));
+    if (await this.services.findOne({ where: { slug } })) throw new BadRequestException('این شناسه سرویس قبلاً ثبت شده است.');
+    return this.services.save(this.services.create({ slug, title: input.title.trim(), description: input.description.trim(), icon: input.icon?.trim() || 'box', serverText: input.serverText?.trim() || null, rulesText: input.rulesText?.trim() || null, faqs: input.faqs ?? [], active: true }));
   }
 
   async updateService(id: string, patch: Partial<CreateServiceInput> & { active?: boolean }) {
     const service = await this.getService(id);
-    if (patch.slug !== undefined) {
-      const slug = patch.slug.trim().toLowerCase();
-      if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(slug)) throw new BadRequestException('شناسه سرویس معتبر نیست.');
-      const duplicate = await this.services.findOne({ where: { slug } });
-      if (duplicate && duplicate.id !== id) throw new BadRequestException('این شناسه سرویس قبلاً ثبت شده است.');
-      service.slug = slug;
-    }
+    if (patch.slug !== undefined) { const slug = patch.slug.trim().toLowerCase(); if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(slug)) throw new BadRequestException('شناسه سرویس معتبر نیست.'); const duplicate = await this.services.findOne({ where: { slug } }); if (duplicate && duplicate.id !== id) throw new BadRequestException('این شناسه سرویس قبلاً ثبت شده است.'); service.slug = slug; }
     if (patch.title !== undefined) service.title = patch.title.trim();
     if (patch.description !== undefined) service.description = patch.description.trim();
     if (patch.icon !== undefined) service.icon = patch.icon.trim() || 'box';
     if (patch.serverText !== undefined) service.serverText = patch.serverText?.trim() || null;
     if (patch.rulesText !== undefined) service.rulesText = patch.rulesText?.trim() || null;
-    if (patch.media !== undefined) service.media = patch.media;
     if (patch.faqs !== undefined) service.faqs = patch.faqs;
     if (patch.active !== undefined) service.active = patch.active;
     return this.services.save(service);
   }
+  async deleteService(id: string) { return this.updateService(id, { active: false }); }
 
-  async deleteService(id: string) {
-    // Soft delete: سفارش‌های قبلی و گزارش‌های مالی نباید با حذف سرویس از بین بروند.
-    return this.updateService(id, { active: false });
+  async listProducts(serviceId?: string, includeInactive = false) { return this.products.find({ where: serviceId ? (includeInactive ? { serviceId } : { serviceId, active: true }) : (includeInactive ? {} : { active: true }), order: { createdAt: 'ASC' } }); }
+  async getProduct(id: string) { const p = await this.products.findOne({ where: { id } }); if (!p) throw new NotFoundException('محصول پیدا نشد.'); return p; }
+  async product(id: string) { const p = await this.products.findOne({ where: { id, active: true } }); if (!p) throw new NotFoundException('محصول پیدا نشد.'); return p; }
+
+  async createProduct(input: CreateProductInput) {
+    await this.getService(input.serviceId);
+    if (!input.title?.trim() || !input.description?.trim()) throw new BadRequestException('عنوان و توضیحات محصول الزامی است.');
+    const price = Number(input.price); if (!Number.isFinite(price) || price <= 0) throw new BadRequestException('قیمت محصول معتبر نیست.');
+    return this.products.save(this.products.create({ serviceId: input.serviceId, title: input.title.trim(), description: input.description.trim(), price: input.price, currency: (input.currency || 'IRT').trim().toUpperCase(), icon: input.icon?.trim() || 'box', active: input.active ?? true, requiresGuide: input.requiresGuide ?? true }));
   }
 
-  listProducts(serviceId?: string) { return this.products.find({ where: serviceId ? { serviceId, active: true } : { active: true }, order: { createdAt: 'ASC' } }); }
-  async product(id: string) { const p = await this.products.findOne({ where: { id, active: true } }); if (!p) throw new NotFoundException('محصول پیدا نشد.'); return p; }
+  async updateProduct(id: string, patch: Partial<Omit<CreateProductInput, 'serviceId'>> & { active?: boolean }) {
+    const product = await this.getProduct(id);
+    if (patch.title !== undefined) product.title = patch.title.trim();
+    if (patch.description !== undefined) product.description = patch.description.trim();
+    if (patch.price !== undefined) { const price = Number(patch.price); if (!Number.isFinite(price) || price <= 0) throw new BadRequestException('قیمت محصول معتبر نیست.'); product.price = patch.price; }
+    if (patch.currency !== undefined) product.currency = patch.currency.trim().toUpperCase();
+    if (patch.icon !== undefined) product.icon = patch.icon.trim() || 'box';
+    if (patch.active !== undefined) product.active = patch.active;
+    if (patch.requiresGuide !== undefined) product.requiresGuide = patch.requiresGuide;
+    return this.products.save(product);
+  }
+  async deleteProduct(id: string) { return this.updateProduct(id, { active: false }); }
+
   async guide(productId: string) { const guide = await this.guides.findOne({ where: { productId, active: true } }); if (!guide) return null; return { ...guide, steps: await this.steps.find({ where: { guideId: guide.id }, order: { position: 'ASC' } }) }; }
+  async getGuide(productId: string) { const guide = await this.guides.findOne({ where: { productId } }); if (!guide) return null; return { ...guide, steps: await this.steps.find({ where: { guideId: guide.id }, order: { position: 'ASC' } }) }; }
+
+  async saveGuide(productId: string, input: GuideInput) {
+    const product = await this.getProduct(productId);
+    if (!input.title?.trim()) throw new BadRequestException('عنوان راهنما الزامی است.');
+    let guide = await this.guides.findOne({ where: { productId } });
+    if (!guide) guide = this.guides.create({ productId, title: input.title.trim(), description: input.description?.trim() || null, active: input.active ?? true });
+    else { guide.title = input.title.trim(); guide.description = input.description?.trim() || null; guide.active = input.active ?? guide.active; }
+    guide = await this.guides.save(guide);
+    if (input.steps) {
+      await this.steps.delete({ guideId: guide.id });
+      const steps = input.steps.map((step, index) => this.steps.create({ guideId: guide!.id, position: index + 1, title: step.title.trim(), content: step.content.trim(), mediaType: step.mediaType || null, mediaUrl: step.mediaUrl?.trim() || null, requiresInput: step.requiresInput ?? false, inputKey: step.inputKey?.trim() || null, inputLabel: step.inputLabel?.trim() || null }));
+      if (steps.length) await this.steps.save(steps);
+    }
+    return this.getGuide(product.id);
+  }
+  async deleteGuide(productId: string) { const guide = await this.guides.findOne({ where: { productId } }); if (!guide) return null; guide.active = false; return this.guides.save(guide); }
 
   async createOrder(userId: string, productId: string) {
     const product = await this.product(productId);
@@ -132,7 +144,6 @@ export class CommerceService implements OnModuleInit {
     if (!progress) progress = await this.progress.save(this.progress.create({ orderId, userId, guideId: guide.id, currentStep: 0, completed: false }));
     return { order, product, guide, steps, progress, inputs: await this.inputs.find({ where: { orderId } }) };
   }
-
   async updateProgress(userId: string, orderId: string, step: number, values?: Record<string, string>) { const data = await this.orderGuide(userId, orderId); if (step < 0 || step > data.steps.length - 1) throw new BadRequestException('مرحله انتخاب‌شده معتبر نیست.'); if (values) await this.saveInputs(userId, orderId, values); data.progress.currentStep = step; data.progress.completed = step === data.steps.length - 1; return this.progress.save(data.progress); }
   async saveInputs(userId: string, orderId: string, values: Record<string, string>) { const order = await this.orders.findOne({ where: { id: orderId, userId } }); if (!order) throw new NotFoundException('سفارش پیدا نشد.'); await this.inputs.delete({ orderId }); const rows = Object.entries(values).filter(([, value]) => value?.trim()).map(([key, value]) => this.inputs.create({ orderId, key, value })); if (rows.length) await this.inputs.save(rows); return { success: true }; }
   async paymentMethods() { return this.methods.find({ where: { active: true }, select: ['id', 'type', 'title', 'cardNumber', 'holderName', 'bankName'] }); }
@@ -159,14 +170,12 @@ export class CommerceService implements OnModuleInit {
     this.notifications.emit(result.payment.userId, { type: 'wallet.updated', wallet: result.wallet, payment: { id: result.payment.id, status: 'APPROVED', amount: result.payment.amount } });
     return { ...result.payment, wallet: result.wallet, online };
   }
-
   async rejectPayment(paymentId: string, reason: string) {
     const result = await this.dataSource.transaction(async manager => { const payment = await manager.findOne(PaymentRequest, { where: { id: paymentId }, lock: { mode: 'pessimistic_write' } }); if (!payment || payment.status !== 'PENDING') throw new BadRequestException('این درخواست در انتظار بررسی نیست یا قبلاً پردازش شده است.'); payment.status = 'REJECTED'; payment.adminReason = reason?.trim() || 'درخواست توسط ادمین رد شد.'; return manager.save(payment); });
     const online = (await this.notifications.create(result.userId, { type: 'DEPOSIT_REJECTED', title: 'درخواست شارژ تأیید نشد', message: result.adminReason ?? 'درخواست شارژ شما رد شد.', data: { paymentId: result.id, amount: result.amount, status: result.status, reason: result.adminReason } })).online;
     this.notifications.emit(result.userId, { type: 'payment.updated', payment: { id: result.id, status: 'REJECTED', amount: result.amount, reason: result.adminReason } });
     return { ...result, online };
   }
-
   async pendingPayments() { return this.payments.find({ where: { status: 'PENDING' }, order: { createdAt: 'ASC' }, take: 50 }); }
   async myOrders(userId: string) { return this.orders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 50 }); }
   async myTransactions(userId: string) { return this.transactions.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 100 }); }
