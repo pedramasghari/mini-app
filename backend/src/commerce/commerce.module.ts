@@ -4,9 +4,10 @@ import { AuthModule } from '../auth/auth.module';
 import { WalletsModule } from '../wallets/wallets.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { User } from '../users/entities/user.entity';
-import { ActivationGuide, ActivationProgress, ActivationStep, Order, OrderInput, PaymentMethod, PaymentRequest, Product, Service, WalletTransaction } from './entities/commerce.entity';
+import { ActivationGuide, ActivationProgress, ActivationStep, Order, OrderInput, PaymentMethod, PaymentRequest, Product, Service, SmsCodeOrder, WalletTransaction } from './entities/commerce.entity';
 import { CommerceService } from './commerce.service';
 import { CommerceController } from './commerce.controller';
+import { SmsCodeService } from './smscode.service';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { CommerceController } from './commerce.controller';
       ActivationProgress,
       ActivationStep,
       Order,
+      SmsCodeOrder,
       OrderInput,
       PaymentMethod,
       PaymentRequest,
@@ -28,7 +30,7 @@ import { CommerceController } from './commerce.controller';
     ]),
   ],
   controllers: [CommerceController],
-  providers: [CommerceService],
-  exports: [CommerceService],
+  providers: [CommerceService, SmsCodeService],
+  exports: [CommerceService, SmsCodeService],
 })
 export class CommerceModule {}
