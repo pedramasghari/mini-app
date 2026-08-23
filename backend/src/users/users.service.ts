@@ -15,6 +15,10 @@ export class UsersService {
     return this.usersRepository.findOne({ where: { telegramId } });
   }
 
+  async findById(id: string): Promise<User | null> {
+    return this.usersRepository.findOne({ where: { id } });
+  }
+
   async create(data: Partial<User>): Promise<User> {
     const user = this.usersRepository.create(data);
     return this.usersRepository.save(user);
