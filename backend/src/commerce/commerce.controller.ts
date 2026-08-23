@@ -48,26 +48,34 @@ export class CommerceController {
   @Get('payment-methods') paymentMethods() { return this.commerce.paymentMethods(); }
 
   @Post('smscode/orders') async createSmsOrder(@Req() req: Request, @Body('productId') productId: string) {
-    return this.smsCode.create(await this.userId(req), productId);
+    if (!productId) throw new BadRequestException('productId الزامی است.');
+    const userId = await this.userId(req);
+    const product = await this.commerce.product(productId);
+    if (!product?.serviceId) throw new BadRequestException('محصول یا سرویس معتبر نیست.');
+
+    const existing = await this.smsOrders.findOne({
+      where: { userId, serviceId: product.serviceId, status: In(['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED']) },
+      order: { createdAt: 'DESC' },
+    });
+    if (existing) return this.smsCode.get(userId, existing.id);
+
+    return this.smsCode.create(userId, productId);
   }
 
   @Get('smscode/orders/active') async activeSmsOrder(@Req() req: Request, @Query('serviceId') serviceId?: string) {
     const userId = await this.userId(req);
     if (!serviceId) throw new BadRequestException('serviceId is required');
-
     const row = await this.smsOrders.findOne({
-      where: {
-        userId,
-        serviceId,
-        status: In(['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED']),
-      },
+      where: { userId, serviceId, status: In(['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED']) },
       order: { createdAt: 'DESC' },
     });
-
     if (!row) return null;
-
-    const current = await this.smsCode.get(userId, row.id);
-    return current && ['ACTIVE', 'OTP_RECEIVED'].includes(current.status) ? current : null;
+    try {
+      const current = await this.smsCode.get(userId, row.id);
+      return current && ['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED'].includes(current.status) ? current : null;
+    } catch {
+      return null;
+    }
   }
 
   @Get('smscode/orders/:id') async smsOrder(@Req() req: Request, @Param('id') id: string) {
@@ -93,19 +101,11 @@ export class CommerceController {
 
   @Post('payments/card-transfer')
   @UseInterceptors(FileInterceptor('receipt', {
-    storage: diskStorage({
-      destination: './uploads/receipts',
-      filename: (_req, file, cb) => cb(null, `${randomUUID()}${extname(file.originalname)}`),
-    }),
+    storage: diskStorage({ destination: './uploads/receipts', filename: (_req, file, cb) => cb(null, `${randomUUID()}${extname(file.originalname)}`) }),
     limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => cb(null, ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.mimetype)),
   }))
-  async cardTransfer(
-    @Req() req: Request,
-    @Body('amount') amount: string,
-    @Body('paymentMethodId') methodId: string,
-    @UploadedFile() receipt?: UploadedReceipt,
-  ) {
+  async cardTransfer(@Req() req: Request, @Body('amount') amount: string, @Body('paymentMethodId') methodId: string, @UploadedFile() receipt?: UploadedReceipt) {
     if (!receipt) throw new BadRequestException('Receipt is required');
     const userId = await this.userId(req);
     const payment = await this.commerce.createPayment(userId, amount, methodId, receipt.path);
