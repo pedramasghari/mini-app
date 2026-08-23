@@ -39,7 +39,12 @@ export class NotificationsService {
     for (const stream of this.streams.get(userId) ?? []) stream.next(event);
   }
 
-  async create(userId: string, input: { type: string; title: string; message: string; data?: Record<string, unknown> }) {
+  async create(userId: string, input: { type: string; title: string; message: string; data?: Record<string, unknown> }): Promise<{ notification: Notification; online: boolean }>;
+  async create(userId: string, title: string, message: string): Promise<{ notification: Notification; online: boolean }>;
+  async create(userId: string, inputOrTitle: { type: string; title: string; message: string; data?: Record<string, unknown> } | string, legacyMessage?: string) {
+    const input = typeof inputOrTitle === 'string'
+      ? { type: 'SYSTEM', title: inputOrTitle, message: legacyMessage ?? '' }
+      : inputOrTitle;
     const notification = await this.notifications.save(this.notifications.create({ userId, type: input.type, title: input.title, message: input.message, data: input.data ?? {}, read: false }));
     this.emit(userId, { type: 'notification', notification });
     return { notification, online: this.isOnline(userId) };
