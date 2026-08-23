@@ -25,17 +25,18 @@ export class ServiceSmsConfig {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column('uuid') serviceId!: string;
   @Column({ default: false }) enabled!: boolean;
+  @Column({ type: 'int', nullable: true }) countryId!: number | null;
   @Column({ type: 'varchar', length: 8, nullable: true }) countryCode!: string | null;
-  @Column({ length: 120, nullable: true }) countryName!: string | null;
+  @Column({ type: 'varchar',length: 120, nullable: true }) countryName!: string | null;
   @Column({ type: 'int', nullable: true }) platformId!: number | null;
-  @Column({ length: 80, nullable: true }) platformCode!: string | null;
-  @Column({ length: 120, nullable: true }) platformName!: string | null;
+  @Column({ type: 'varchar',length: 80, nullable: true }) platformCode!: string | null;
+  @Column({ type: 'varchar',length: 120, nullable: true }) platformName!: string | null;
   @Column({ type: 'int', nullable: true }) catalogProductId!: number | null;
   @Column({ type: 'int', nullable: true }) operatorId!: number | null;
   @Column({ type: 'decimal', precision: 20, scale: 8, nullable: true }) minProviderPrice!: string | null;
   @Column({ type: 'decimal', precision: 20, scale: 8, nullable: true }) maxProviderPrice!: string | null;
   @Column({ length: 30, default: 'cheapest' }) policy!: 'cheapest' | 'best_success';
-  @Column({ length: 80, nullable: true }) preferredProvider!: string | null;
+  @Column({ type: 'varchar',length: 80, nullable: true }) preferredProvider!: string | null;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }
@@ -120,7 +121,7 @@ export class SmsCodeOrder {
   @Column({ type: 'int', default: 0 }) smsRevision!: number;
   @Column({ type: 'timestamptz', nullable: true }) refundedAt!: Date | null;
   @Column({ type: 'decimal', precision: 30, scale: 8, nullable: true }) refundedAmount!: string | null;
-  @Column({ length: 80, nullable: true }) refundReason!: string | null;
+  @Column({ type: 'varchar',length: 80, nullable: true }) refundReason!: string | null;
   @Column({ type: 'jsonb', default: {} }) providerSnapshot!: Record<string, unknown>;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
