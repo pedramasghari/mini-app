@@ -35,7 +35,7 @@ export class AdminController {
   @Get('services/:serviceId/sms-config') smsConfig(@Param('serviceId') serviceId: string) { return this.smsCode.getServiceConfig(serviceId); }
   @Put('services/:serviceId/sms-config') saveSmsConfig(@Param('serviceId') serviceId: string, @Body() body: Record<string, unknown>) { return this.smsCode.saveServiceConfig(serviceId, body as never); }
   @Get('smscode/countries') countries() { return this.smsCode.catalogCountries(); }
-  @Get('smscode/services') catalogServices(@Body() _body: unknown, @Req() req: Request) {
+  @Get('smscode/services') catalogServices(@Req() req: Request) {
     const value = Number((req.query as Record<string, string | undefined>).countryId);
     return this.smsCode.catalogServices(Number.isInteger(value) && value > 0 ? value : undefined);
   }
