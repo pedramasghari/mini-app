@@ -106,6 +106,15 @@ export class AuthService {
       if (session) await this.sessions.delete(session.id);
       throw new UnauthorizedException('Session expired');
     }
+
+    const expectedRole = this.isAdminTelegramId(session.user.telegramId)
+      ? 'ADMIN'
+      : 'USER';
+    if (session.user.role !== expectedRole) {
+      session.user.role = expectedRole;
+      await this.usersService.save(session.user);
+    }
+
     const wallet = await this.walletsService.findByUserId(session.userId);
     return {
       user: session.user,
