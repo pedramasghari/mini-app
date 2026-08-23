@@ -25,8 +25,7 @@ export class ServiceSmsConfig {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column('uuid') serviceId!: string;
   @Column({ default: false }) enabled!: boolean;
-  @Column({ type: 'int', nullable: true }) countryId!: number | null;
-  @Column({ length: 8, nullable: true }) countryCode!: string | null;
+  @Column({ type: 'varchar', length: 8, nullable: true }) countryCode!: string | null;
   @Column({ length: 120, nullable: true }) countryName!: string | null;
   @Column({ type: 'int', nullable: true }) platformId!: number | null;
   @Column({ length: 80, nullable: true }) platformCode!: string | null;
