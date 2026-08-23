@@ -29,6 +29,7 @@ type SmsOrder = {
   refunded?: boolean;
 };
 
+const ACTIVE_STATUSES = new Set(["CREATING", "PROVIDER_PENDING", "ACTIVE", "OTP_RECEIVED"]);
 const TERMINAL = new Set(["CANCELED", "EXPIRED", "COMPLETED"]);
 
 function remainingSeconds(expiresAt: string | null) {
@@ -41,6 +42,19 @@ function formatTimer(seconds: number) {
   return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
 }
 
+function statusLabel(status: string) {
+  switch (status) {
+    case "CREATING": return "در حال ایجاد";
+    case "PROVIDER_PENDING": return "در انتظار تخصیص";
+    case "ACTIVE": return "فعال";
+    case "OTP_RECEIVED": return "کد دریافت شد";
+    case "CANCELED": return "لغو شده";
+    case "EXPIRED": return "منقضی شده";
+    case "COMPLETED": return "تکمیل شده";
+    default: return "در حال بررسی";
+  }
+}
+
 export default function AppleServicePurchase({ service, product, guide }: Props) {
   const storageKey = `apple-guide-state:${product.id}`;
   const [started, setStarted] = useState(false);
@@ -50,12 +64,13 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
   const [smsAction, setSmsAction] = useState<"resend" | "cancel" | null>(null);
   const [timer, setTimer] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [activeOrderResolved, setActiveOrderResolved] = useState(false);
   const lastStatus = useRef<string | null>(null);
   const notifiedRevision = useRef(0);
 
   const steps = useMemo(() => (guide?.steps ?? []).slice().sort((a, b) => a.position - b.position), [guide]);
   const current = steps[step];
-  const activeSms = Boolean(smsOrder && !TERMINAL.has(smsOrder.status));
+  const activeSms = Boolean(smsOrder && ACTIVE_STATUSES.has(smsOrder.status));
 
   useEffect(() => {
     try {
@@ -93,22 +108,33 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
     }
   }, []);
 
+  // مهم: تا پایان این درخواست، دکمه خرید عمداً غیرفعال است تا در refresh یک سفارش دوم ساخته نشود.
   useEffect(() => {
     let cancelled = false;
+    setActiveOrderResolved(false);
     api<SmsOrder | null>(`smscode/orders/active?serviceId=${encodeURIComponent(service.id)}`)
       .then((next) => {
-        if (cancelled || !next) return;
-        setSmsOrder(next);
-        setTimer(remainingSeconds(next.expiresAt));
-        lastStatus.current = next.status;
-        notifiedRevision.current = next.smsRevision ?? 0;
+        if (cancelled) return;
+        if (next) {
+          setSmsOrder(next);
+          setTimer(remainingSeconds(next.expiresAt));
+          lastStatus.current = next.status;
+          notifiedRevision.current = next.smsRevision ?? 0;
+        } else {
+          setSmsOrder(null);
+        }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) toast.error("بررسی شماره فعال انجام نشد. لطفاً دوباره تلاش کنید.");
+      })
+      .finally(() => {
+        if (!cancelled) setActiveOrderResolved(true);
+      });
     return () => { cancelled = true; };
   }, [service.id]);
 
   useEffect(() => {
-    if (!smsOrder?.id || TERMINAL.has(smsOrder.status)) return;
+    if (!smsOrder?.id || !ACTIVE_STATUSES.has(smsOrder.status)) return;
     const poll = window.setInterval(() => {
       if (document.visibilityState === "visible") void syncSmsOrder(smsOrder.id);
     }, 5000);
@@ -122,7 +148,7 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
   }, [smsOrder?.expiresAt, smsOrder?.status]);
 
   async function requestNumber() {
-    if (activeSms || smsLoading) return;
+    if (!activeOrderResolved || activeSms || smsLoading) return;
     setSmsLoading(true);
     try {
       const next = await api<SmsOrder>("smscode/orders", {
@@ -136,9 +162,7 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
       toast.success(next.phoneNumber ? "شماره با موفقیت دریافت شد." : "سفارش ثبت شد؛ در حال تخصیص شماره…");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "دریافت شماره ناموفق بود.");
-    } finally {
-      setSmsLoading(false);
-    }
+    } finally { setSmsLoading(false); }
   }
 
   async function resend() {
@@ -161,7 +185,7 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
       const next = await api<SmsOrder>(`smscode/orders/${smsOrder.id}/cancel`, { method: "POST" });
       setSmsOrder(next);
       setTimer(remainingSeconds(next.expiresAt));
-      toast.success("شماره لغو شد؛ وجه پس از تأیید سرویس به کیف پول برمی‌گردد.");
+      toast.success("شماره لغو شد؛ وجه به کیف پول برمی‌گردد.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "لغو شماره ناموفق بود.");
     } finally { setSmsAction(null); }
@@ -209,7 +233,7 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
     </section>
   );
 
-  return <div className="mt-5 space-y-3">{smsOrder && <SmsOrderCard order={smsOrder} timer={timer} copied={copied} action={smsAction} onCopy={() => void copyPhone()} onResend={() => void resend()} onCancel={() => void cancel()} />}{guideSection}<RequestNumberButton loading={smsLoading} disabled={activeSms} onClick={() => void requestNumber()} /></div>;
+  return <div className="mt-5 space-y-3">{smsOrder && <SmsOrderCard order={smsOrder} timer={timer} copied={copied} action={smsAction} onCopy={() => void copyPhone()} onResend={() => void resend()} onCancel={() => void cancel()} />}{guideSection}<RequestNumberButton loading={smsLoading} disabled={!activeOrderResolved || activeSms} onClick={() => void requestNumber()} /></div>;
 }
 
 function statusText(status: string) {
@@ -221,7 +245,8 @@ function statusText(status: string) {
 }
 
 function RequestNumberButton({ loading, disabled, onClick }: { loading: boolean; disabled?: boolean; onClick: () => void }) {
-  return <button onClick={onClick} disabled={loading || disabled} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 text-sm font-black text-cyan-200 transition hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-45">{loading ? <Loader2 className="animate-spin" size={17} /> : <Phone size={17} />}{disabled ? "شماره فعال است" : "درخواست شماره"}</button>;
+  const label = loading ? "در حال دریافت…" : !disabled ? "دریافت شماره" : "در حال بررسی شماره…";
+  return <button onClick={onClick} disabled={loading || disabled} className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 text-sm font-black text-cyan-200 transition hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-45">{loading ? <Loader2 className="animate-spin" size={17} /> : <Phone size={17} />}{label}</button>;
 }
 
 function SmsOrderCard({ order, timer, copied, action, onCopy, onResend, onCancel }: { order: SmsOrder; timer: number; copied: boolean; action: "resend" | "cancel" | null; onCopy: () => void; onResend: () => void; onCancel: () => void }) {
@@ -229,5 +254,27 @@ function SmsOrderCard({ order, timer, copied, action, onCopy, onResend, onCancel
   const canResend = order.canResend && !action;
   const canCancel = order.canCancel && !action;
   const timerText = terminal ? "--:--" : formatTimer(timer);
-  return <section className="overflow-hidden rounded-[22px] border border-white/10 bg-[#080d18] shadow-xl shadow-black/10"><div className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3"><div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate text-sm font-black text-cyan-300">#{order.providerOrderId ?? "—"}</span><span className={`rounded-md px-2 py-0.5 text-[9px] font-bold ${order.status === "ACTIVE" ? "bg-cyan-400/10 text-cyan-300" : order.status === "OTP_RECEIVED" ? "bg-emerald-400/10 text-emerald-300" : "bg-white/10 text-white/45"}`}>{order.status}</span></div><div className="mt-3 text-[10px] font-bold tracking-wider text-white/30">PHONE</div><div className="mt-1 flex items-center gap-2"><span className="truncate text-base font-black tracking-wide text-white">{order.phoneNumber ?? "در حال دریافت شماره..."}</span>{order.phoneNumber && <button onClick={onCopy} className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-white/10 text-white/45 hover:bg-white/5" aria-label="کپی شماره">{copied ? <Check size={14} /> : <Copy size={14} />}</button>}</div>{order.otpCode && <div className="mt-3 rounded-xl bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-300">کد OTP: <span className="text-sm tracking-[0.2em]">{order.otpCode}</span></div>}{order.otpMessage && !order.otpCode && <p className="mt-3 line-clamp-2 text-[11px] leading-5 text-white/45">{order.otpMessage}</p>}</div><div className="pt-1 text-sm font-black tabular-nums text-cyan-300">{timerText}</div></div><div className="grid grid-cols-4 border-t border-white/5"><button disabled className="flex h-9 items-center justify-center gap-1 text-[10px] text-white/15"><CheckCircle2 size={12}/> DONE</button><button disabled={!canResend} onClick={onResend} className="flex h-9 items-center justify-center gap-1 border-x border-white/5 text-[10px] text-white/45 disabled:opacity-20">{action === "resend" ? <Loader2 className="animate-spin" size={12}/> : <RefreshCw size={12}/>} RESEND</button><button disabled={!canCancel} onClick={onCancel} className="flex h-9 items-center justify-center gap-1 text-[10px] text-white/45 disabled:opacity-20"><X size={12}/> CANCEL</button><button disabled={!order.canReplace} onClick={() => toast.info("Replace هنوز توسط API عمومی SMSCode قابل اجرا نیست.")} className="flex h-9 items-center justify-center gap-1 border-r border-white/5 text-[10px] text-white/45 disabled:opacity-20"><RefreshCw size={12}/> REPLACE</button></div>{order.refunded && <div className="border-t border-emerald-400/10 bg-emerald-400/5 px-4 py-2 text-[10px] text-emerald-300">وجه این سفارش برگشت داده شده است.</div>}</section>;
+  const otpWaiting = !order.otpCode;
+  return <section className="overflow-hidden rounded-[22px] border border-white/10 bg-[#080d18] shadow-xl shadow-black/10">
+    <div className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2"><span className="truncate text-sm font-black text-cyan-300">#{order.providerOrderId ?? "—"}</span><span className={`rounded-md px-2 py-0.5 text-[9px] font-bold ${order.status === "ACTIVE" ? "bg-cyan-400/10 text-cyan-300" : order.status === "OTP_RECEIVED" ? "bg-emerald-400/10 text-emerald-300" : "bg-white/10 text-white/45"}`}>{statusLabel(order.status)}</span></div>
+        <div className="mt-3 text-[10px] font-bold tracking-wider text-white/30">شماره</div>
+        <div className="mt-1 flex items-center gap-2"><span className="truncate text-base font-black tracking-wide text-white">{order.phoneNumber ?? "در حال دریافت شماره..."}</span>{order.phoneNumber && <button onClick={onCopy} className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-white/10 text-white/45 hover:bg-white/5" aria-label="کپی شماره">{copied ? <Check size={14} /> : <Copy size={14} />}</button>}</div>
+        <div className="mt-3 rounded-xl border border-white/5 bg-white/[.025] px-3 py-2.5">
+          <div className="text-[10px] font-bold text-white/35">آخرین کد دریافت‌شده</div>
+          {order.otpCode ? <div className="mt-1 text-sm font-black tracking-[0.2em] text-emerald-300">{order.otpCode}</div> : <div className="mt-1 text-xs text-white/35">در انتظار دریافت پیامک...</div>}
+        </div>
+        {order.otpMessage && <p className="mt-2 line-clamp-2 text-[11px] leading-5 text-white/45">متن پیامک: {order.otpMessage}</p>}
+      </div>
+      <div className="pt-1 text-sm font-black tabular-nums text-cyan-300">{timerText}</div>
+    </div>
+    <div className="grid grid-cols-4 border-t border-white/5">
+      <button disabled className="flex h-9 items-center justify-center gap-1 text-[10px] text-white/15"><CheckCircle2 size={12}/> تکمیل</button>
+      <button disabled={!canResend} onClick={onResend} className="flex h-9 items-center justify-center gap-1 border-x border-white/5 text-[10px] text-white/45 disabled:opacity-20">{action === "resend" ? <Loader2 className="animate-spin" size={12}/> : <RefreshCw size={12}/>} ارسال مجدد</button>
+      <button disabled={!canCancel} onClick={onCancel} className="flex h-9 items-center justify-center gap-1 text-[10px] text-white/45 disabled:opacity-20"><X size={12}/> لغو</button>
+      <button disabled={!order.canReplace} onClick={() => toast.info("تعویض شماره هنوز توسط API عمومی SMSCode قابل اجرا نیست.")} className="flex h-9 items-center justify-center gap-1 border-r border-white/5 text-[10px] text-white/45 disabled:opacity-20"><RefreshCw size={12}/> تعویض</button>
+    </div>
+    {order.refunded && <div className="border-t border-emerald-400/10 bg-emerald-400/5 px-4 py-2 text-[10px] text-emerald-300">وجه این سفارش برگشت داده شده است.</div>}
+  </section>;
 }
