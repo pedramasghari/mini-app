@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, Param, Post, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
@@ -6,9 +6,12 @@ import { diskStorage } from 'multer';
 import { extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CommerceService } from './commerce.service';
+import { Product, SmsCodeOrder } from './entities/commerce.entity';
 import { SmsCodeService } from './smscode.service';
 
 const COOKIE = 'miniapp_session';
@@ -23,6 +26,7 @@ export class CommerceController {
     private readonly auth: AuthService,
     private readonly notifications: NotificationsService,
     private readonly smsCode: SmsCodeService,
+    @InjectRepository(SmsCodeOrder) private readonly smsOrders: Repository<SmsCodeOrder>,
   ) {}
 
   private async userId(req: Request) {
@@ -45,6 +49,25 @@ export class CommerceController {
 
   @Post('smscode/orders') async createSmsOrder(@Req() req: Request, @Body('productId') productId: string) {
     return this.smsCode.create(await this.userId(req), productId);
+  }
+
+  @Get('smscode/orders/active') async activeSmsOrder(@Req() req: Request, @Query('serviceId') serviceId?: string) {
+    const userId = await this.userId(req);
+    if (!serviceId) throw new BadRequestException('serviceId is required');
+
+    const row = await this.smsOrders.findOne({
+      where: {
+        userId,
+        serviceId,
+        status: 'ACTIVE',
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!row) return null;
+
+    const current = await this.smsCode.get(userId, row.id);
+    return current && current.status === 'ACTIVE' ? current : null;
   }
 
   @Get('smscode/orders/:id') async smsOrder(@Req() req: Request, @Param('id') id: string) {
