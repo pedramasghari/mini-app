@@ -2,6 +2,23 @@
 
 Stack: Next.js + NestJS + TypeORM + PostgreSQL.
 
+## Architecture
+
+The Telegram bot is intentionally a thin launcher. It does not contain admin, finance, user, order, or service workflows. Incoming messages receive a button that opens `MINI_APP_URL`.
+
+Administration is handled inside the Mini App:
+
+- `/admin`
+- `/admin/finace`
+- `/admin/user`
+- `/admin/orders`
+- `/admin/services`
+- `/admin/payments`
+
+These routes are protected by the backend `/admin/access` endpoint. Non-admin users are redirected to `/panel`. Administrators can still use `/panel` normally and have an entry point back to `/admin`.
+
+Charge-related notifications are persisted in the existing notification system and are also sent through the Telegram bot to the affected user and configured administrators.
+
 ## 1. Start PostgreSQL
 
 ```bash
@@ -15,7 +32,7 @@ cd backend
 cp .env.example .env
 ```
 
-Set `TELEGRAM_BOT_TOKEN` in `backend/.env`.
+Set `TELEGRAM_BOT_TOKEN`, `MINI_APP_URL`, and `ADMIN_TELEGRAM_IDS` in `backend/.env`.
 
 Then:
 
@@ -51,13 +68,13 @@ cloudflared tunnel --url http://localhost:3000
 
 Copy the generated `https://...trycloudflare.com` URL and configure it as the bot's Main Mini App or Menu Button in @BotFather.
 
-If you use a different tunnel/domain, set the backend's `FRONTEND_URL` only if you also want direct cross-origin API access. The normal development path uses the Next.js `/api` proxy and does not require exposing port 4000.
-
 ## Authentication
 
-`POST /auth/telegram` validates Telegram `initData`, creates/finds the user, creates/finds the wallet, and sets an HttpOnly session cookie.
+`POST /auth/telegram` validates Telegram `initData`, creates/finds the user, creates/finds the wallet, assigns the `USER`/`ADMIN` role from `ADMIN_TELEGRAM_IDS`, and sets an HttpOnly session cookie.
 
-`GET /auth/me` returns the authenticated user and wallet.
+`GET /auth/me` returns the authenticated user, wallet, and `isAdmin` status.
+
+`GET /admin/access` requires an authenticated admin session.
 
 `POST /auth/logout` invalidates the current session.
 
