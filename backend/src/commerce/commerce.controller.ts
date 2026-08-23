@@ -6,6 +6,7 @@ import { extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { AuthService } from '../auth/auth.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CommerceService } from './commerce.service';
 
 const COOKIE = 'miniapp_session';
@@ -15,8 +16,17 @@ type UploadedReceipt = { path: string };
 
 @Controller()
 export class CommerceController {
-  constructor(private readonly commerce: CommerceService, private readonly auth: AuthService) {}
-  private async userId(req: Request) { const session = await this.auth.getSession(token(req) ?? ''); return session.user.id; }
+  constructor(
+    private readonly commerce: CommerceService,
+    private readonly auth: AuthService,
+    private readonly notifications: NotificationsService,
+  ) {}
+
+  private async userId(req: Request) {
+    const session = await this.auth.getSession(token(req) ?? '');
+    return session.user.id;
+  }
+
   @Get('services') listServices() { return this.commerce.listServices(); }
   @Get('products') listProducts() { return this.commerce.listProducts(); }
   @Get('services/:serviceId/products') products(@Param('serviceId') id: string) { return this.commerce.listProducts(id); }
@@ -29,6 +39,34 @@ export class CommerceController {
   @Get('orders/me') async orders(@Req() req: Request) { return this.commerce.myOrders(await this.userId(req)); }
   @Get('transactions/me') async transactions(@Req() req: Request) { return this.commerce.myTransactions(await this.userId(req)); }
   @Get('payment-methods') paymentMethods() { return this.commerce.paymentMethods(); }
-  @Post('payments/card-transfer') @UseInterceptors(FileInterceptor('receipt', { storage: diskStorage({ destination: './uploads/receipts', filename: (_req, file, cb) => cb(null, `${randomUUID()}${extname(file.originalname)}`) }), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (_req, file, cb) => cb(null, ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.mimetype)) }))
-  async cardTransfer(@Req() req: Request, @Body('amount') amount: string, @Body('paymentMethodId') methodId: string, @UploadedFile() receipt?: UploadedReceipt) { if (!receipt) throw new BadRequestException('Receipt is required'); return this.commerce.createPayment(await this.userId(req), amount, methodId, receipt.path); }
+
+  @Post('payments/card-transfer')
+  @UseInterceptors(FileInterceptor('receipt', {
+    storage: diskStorage({
+      destination: './uploads/receipts',
+      filename: (_req, file, cb) => cb(null, `${randomUUID()}${extname(file.originalname)}`),
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => cb(null, ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.mimetype)),
+  }))
+  async cardTransfer(
+    @Req() req: Request,
+    @Body('amount') amount: string,
+    @Body('paymentMethodId') methodId: string,
+    @UploadedFile() receipt?: UploadedReceipt,
+  ) {
+    if (!receipt) throw new BadRequestException('Receipt is required');
+
+    const userId = await this.userId(req);
+    const payment = await this.commerce.createPayment(userId, amount, methodId, receipt.path);
+
+    await this.notifications.create(userId, {
+      type: 'DEPOSIT_PENDING',
+      title: 'درخواست شارژ ثبت شد',
+      message: `درخواست شارژ به مبلغ ${payment.amount} ${payment.currency} ثبت شد و در انتظار بررسی است.`,
+      data: { paymentId: payment.id, amount: payment.amount, status: payment.status },
+    });
+
+    return payment;
+  }
 }
