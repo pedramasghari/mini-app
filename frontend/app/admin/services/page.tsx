@@ -1,25 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronDown, Edit3, Film, Image as ImageIcon, Plus, Power, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Check, Edit3, Film, Image as ImageIcon, Plus, Power, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 
 type Media = { type: 'image' | 'video'; url: string; title?: string; thumbnailUrl?: string };
 type Faq = { question: string; answer: string };
-type Service = {
-  id: string; slug: string; title: string; description: string; icon: string;
-  active: boolean; serverText: string | null; rulesText: string | null;
-  media: Media[]; faqs: Faq[]; createdAt: string; updatedAt: string;
-};
-
+type Service = { id: string; slug: string; title: string; description: string; icon: string; active: boolean; serverText: string | null; rulesText: string | null; media: Media[]; faqs: Faq[]; createdAt: string; updatedAt: string };
 type FormState = Omit<Service, 'id' | 'createdAt' | 'updatedAt'>;
 
-const emptyForm: FormState = {
-  slug: '', title: '', description: '', icon: 'box', active: true,
-  serverText: '', rulesText: '', media: [], faqs: [],
-};
-
+const emptyForm: FormState = { slug: '', title: '', description: '', icon: 'box', active: true, serverText: '', rulesText: '', media: [], faqs: [] };
 const inputClass = 'w-full rounded-2xl border border-white/10 bg-white/[0.045] px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-cyan-400/50 focus:bg-white/[0.07]';
 const textareaClass = `${inputClass} min-h-28 resize-y leading-7`;
 
@@ -30,138 +21,52 @@ export default function AdminServicesPage() {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [editing, setEditing] = useState<Service | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [tab, setTab] = useState<'general' | 'content' | 'media' | 'faq'>('general');
   const [error, setError] = useState('');
 
-  async function load() {
-    setLoading(true); setError('');
-    try { setServices(await api<Service[]>('admin/services')); }
-    catch (e) { setError(e instanceof Error ? e.message : 'خطا در دریافت سرویس‌ها'); }
-    finally { setLoading(false); }
-  }
-
+  async function load() { setLoading(true); setError(''); try { setServices(await api<Service[]>('admin/services')); } catch (e) { setError(e instanceof Error ? e.message : 'خطا در دریافت سرویس‌ها'); } finally { setLoading(false); } }
   useEffect(() => { void load(); }, []);
+  const filtered = useMemo(() => services.filter((s) => { const q = query.trim().toLowerCase(); const matchesQuery = !q || s.title.toLowerCase().includes(q) || s.slug.toLowerCase().includes(q) || s.description.toLowerCase().includes(q); const matchesStatus = status === 'all' || (status === 'active' ? s.active : !s.active); return matchesQuery && matchesStatus; }), [services, query, status]);
 
-  const filtered = useMemo(() => services.filter((s) => {
-    const q = query.trim().toLowerCase();
-    const matchesQuery = !q || s.title.toLowerCase().includes(q) || s.slug.toLowerCase().includes(q) || s.description.toLowerCase().includes(q);
-    const matchesStatus = status === 'all' || (status === 'active' ? s.active : !s.active);
-    return matchesQuery && matchesStatus;
-  }), [services, query, status]);
-
-  function openCreate() { setEditing(null); setForm(emptyForm); setTab('general'); setError(''); }
-  function openEdit(service: Service) {
-    setEditing(service);
-    setForm({ slug: service.slug, title: service.title, description: service.description, icon: service.icon, active: service.active, serverText: service.serverText ?? '', rulesText: service.rulesText ?? '', media: service.media ?? [], faqs: service.faqs ?? [] });
-    setTab('general'); setError('');
-  }
+  function openCreate() { setEditing(null); setForm(emptyForm); setTab('general'); setError(''); setEditorOpen(true); }
+  function openEdit(service: Service) { setEditing(service); setForm({ slug: service.slug, title: service.title, description: service.description, icon: service.icon, active: service.active, serverText: service.serverText ?? '', rulesText: service.rulesText ?? '', media: service.media ?? [], faqs: service.faqs ?? [] }); setTab('general'); setError(''); setEditorOpen(true); }
+  function closeEditor() { setEditorOpen(false); setEditing(null); }
 
   async function save() {
     if (!form.slug.trim() || !form.title.trim() || !form.description.trim()) { setError('شناسه، عنوان و توضیحات الزامی هستند.'); setTab('general'); return; }
     setSaving(true); setError('');
     try {
       const payload = { ...form, serverText: form.serverText || null, rulesText: form.rulesText || null };
-      const saved = editing
-        ? await api<Service>(`admin/services/${editing.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-        : await api<Service>('admin/services', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      setServices((current) => editing ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]);
-      setEditing(null);
-    } catch (e) { setError(e instanceof Error ? e.message : 'ذخیره سرویس ناموفق بود.'); }
-    finally { setSaving(false); }
+      const saved = editing ? await api<Service>(`admin/services/${editing.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }) : await api<Service>('admin/services', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      setServices(current => editing ? current.map(item => item.id === saved.id ? saved : item) : [saved, ...current]); closeEditor();
+    } catch (e) { setError(e instanceof Error ? e.message : 'ذخیره سرویس ناموفق بود.'); } finally { setSaving(false); }
   }
+  async function toggle(service: Service) { try { const saved = await api<Service>(`admin/services/${service.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !service.active }) }); setServices(items => items.map(item => item.id === saved.id ? saved : item)); } catch (e) { setError(e instanceof Error ? e.message : 'تغییر وضعیت ناموفق بود.'); } }
+  async function remove(service: Service) { if (!window.confirm(`سرویس «${service.title}» غیرفعال شود؟`)) return; try { const saved = await api<Service>(`admin/services/${service.id}`, { method: 'DELETE' }); setServices(items => items.map(item => item.id === saved.id ? saved : item)); } catch (e) { setError(e instanceof Error ? e.message : 'حذف سرویس ناموفق بود.'); } }
+  const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm(current => ({ ...current, [key]: value }));
+  const addMedia = (type: 'image' | 'video') => setField('media', [...form.media, { type, url: '', title: '' }]);
+  const updateMedia = (index: number, patch: Partial<Media>) => setField('media', form.media.map((item, i) => i === index ? { ...item, ...patch } : item));
+  const removeMedia = (index: number) => setField('media', form.media.filter((_, i) => i !== index));
+  const addFaq = () => setField('faqs', [...form.faqs, { question: '', answer: '' }]);
+  const updateFaq = (index: number, patch: Partial<Faq>) => setField('faqs', form.faqs.map((item, i) => i === index ? { ...item, ...patch } : item));
+  const removeFaq = (index: number) => setField('faqs', form.faqs.filter((_, i) => i !== index));
 
-  async function toggle(service: Service) {
-    try {
-      const saved = await api<Service>(`admin/services/${service.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !service.active }) });
-      setServices((items) => items.map((item) => item.id === saved.id ? saved : item));
-    } catch (e) { setError(e instanceof Error ? e.message : 'تغییر وضعیت ناموفق بود.'); }
-  }
-
-  async function remove(service: Service) {
-    if (!window.confirm(`سرویس «${service.title}» غیرفعال شود؟`)) return;
-    try {
-      const saved = await api<Service>(`admin/services/${service.id}`, { method: 'DELETE' });
-      setServices((items) => items.map((item) => item.id === saved.id ? saved : item));
-    } catch (e) { setError(e instanceof Error ? e.message : 'حذف سرویس ناموفق بود.'); }
-  }
-
-  const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
-
-  function addMedia(type: 'image' | 'video') { setField('media', [...form.media, { type, url: '', title: '' }]); }
-  function updateMedia(index: number, patch: Partial<Media>) { setField('media', form.media.map((item, i) => i === index ? { ...item, ...patch } : item)); }
-  function removeMedia(index: number) { setField('media', form.media.filter((_, i) => i !== index)); }
-  function addFaq() { setField('faqs', [...form.faqs, { question: '', answer: '' }]); }
-  function updateFaq(index: number, patch: Partial<Faq>) { setField('faqs', form.faqs.map((item, i) => i === index ? { ...item, ...patch } : item)); }
-  function removeFaq(index: number) { setField('faqs', form.faqs.filter((_, i) => i !== index)); }
-
-  return (
-    <div className="space-y-6">
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs text-cyan-300/80"><span className="h-2 w-2 rounded-full bg-cyan-400" /> مدیریت محتوا</div>
-          <h1 className="text-2xl font-black tracking-tight md:text-3xl">سرویس‌ها</h1>
-          <p className="mt-2 text-sm text-white/45">سرویس‌های قابل نمایش در Mini App را از یکجا مدیریت کنید.</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => void load()} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-white/65 hover:bg-white/[0.08]" title="بروزرسانی"><RefreshCw size={18} /></button>
-          <button onClick={openCreate} className="flex items-center gap-2 rounded-2xl bg-cyan-400 px-5 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-500/10 hover:bg-cyan-300"><Plus size={18} /> سرویس جدید</button>
-        </div>
-      </header>
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[['کل سرویس‌ها', services.length], ['فعال', services.filter(s => s.active).length], ['غیرفعال', services.filter(s => !s.active).length], ['مدیا', services.reduce((n, s) => n + s.media.length, 0)]].map(([label, value]) => (
-          <div key={String(label)} className="rounded-3xl border border-white/10 bg-white/[0.035] p-4"><div className="text-xs text-white/40">{label}</div><div className="mt-2 text-2xl font-black">{value}</div></div>
-        ))}
-      </div>
-
-      <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/[0.025] p-3 md:flex-row">
-        <div className="relative flex-1"><Search className="absolute right-4 top-3.5 text-white/30" size={18} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="جستجو بر اساس عنوان، slug یا توضیحات..." className={`${inputClass} pr-11`} /></div>
-        <div className="flex rounded-2xl bg-white/[0.04] p-1">
-          {([['all', 'همه'], ['active', 'فعال'], ['inactive', 'غیرفعال']] as const).map(([key, label]) => <button key={key} onClick={() => setStatus(key)} className={`rounded-xl px-4 py-2 text-xs transition ${status === key ? 'bg-white/10 text-white' : 'text-white/40'}`}>{label}</button>)}
-        </div>
-      </div>
-
-      {error && <div className="rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">{error}</div>}
-
-      {loading ? <div className="grid min-h-60 place-items-center rounded-3xl border border-white/10 bg-white/[0.02] text-white/40">در حال دریافت سرویس‌ها…</div> : filtered.length === 0 ? <div className="grid min-h-60 place-items-center rounded-3xl border border-dashed border-white/10 bg-white/[0.02] text-center"><div><div className="text-lg font-bold">سرویسی پیدا نشد</div><div className="mt-2 text-sm text-white/35">برای شروع یک سرویس جدید بسازید.</div></div></div> : <div className="grid gap-4 xl:grid-cols-2">
-        {filtered.map(service => <motion.article layout key={service.id} className="group overflow-hidden rounded-3xl border border-white/10 bg-white/[0.035] p-5 transition hover:border-cyan-400/20 hover:bg-white/[0.05]">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-3"><div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-cyan-400/10 text-lg font-black text-cyan-300">{service.icon || '◈'}</div><div className="min-w-0"><h2 className="truncate font-bold">{service.title}</h2><div className="mt-1 text-xs text-white/35">{service.slug}</div></div></div>
-            <span className={`rounded-full px-3 py-1 text-[11px] ${service.active ? 'bg-emerald-400/10 text-emerald-300' : 'bg-white/10 text-white/40'}`}>{service.active ? 'فعال' : 'غیرفعال'}</span>
-          </div>
-          <p className="mt-4 line-clamp-2 min-h-10 text-sm leading-6 text-white/45">{service.description}</p>
-          <div className="mt-4 flex flex-wrap gap-2"><span className="rounded-xl bg-white/[0.05] px-3 py-1.5 text-xs text-white/45">{service.media.length} مدیا</span><span className="rounded-xl bg-white/[0.05] px-3 py-1.5 text-xs text-white/45">{service.faqs.length} سوال متداول</span>{service.serverText && <span className="rounded-xl bg-white/[0.05] px-3 py-1.5 text-xs text-white/45">متن سرور</span>}</div>
-          <div className="mt-5 flex gap-2 border-t border-white/5 pt-4"><button onClick={() => openEdit(service)} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-white/[0.06] py-2.5 text-xs font-bold text-white/70 hover:bg-white/10"><Edit3 size={15} /> ویرایش</button><button onClick={() => void toggle(service)} className="rounded-2xl border border-white/10 px-3 text-white/50 hover:bg-white/10" title={service.active ? 'غیرفعال کردن' : 'فعال کردن'}><Power size={16} /></button><button onClick={() => void remove(service)} className="rounded-2xl border border-red-400/10 px-3 text-red-300/60 hover:bg-red-400/10"><Trash2 size={16} /></button></div>
-        </motion.article>)}
-      </div>}
-
-      <AnimatePresence>{(editing || editing === null) && false ? null : null}</AnimatePresence>
-      {(editing !== null || services.length >= 0) && <ServiceEditor open={editing !== null || false} form={form} setForm={setForm} tab={tab} setTab={setTab} saving={saving} error={error} editing={editing} onClose={() => setEditing(null)} onSave={() => void save()} setField={setField} addMedia={addMedia} updateMedia={updateMedia} removeMedia={removeMedia} addFaq={addFaq} updateFaq={updateFaq} removeFaq={removeFaq} />}
-      <button id="service-create-trigger" className="hidden" onClick={openCreate} />
-      <div className="fixed bottom-5 left-5 z-20 md:hidden"><button onClick={openCreate} className="grid h-14 w-14 place-items-center rounded-full bg-cyan-400 text-slate-950 shadow-xl shadow-cyan-500/20"><Plus /></button></div>
-    </div>
-  );
-}
-
-function ServiceEditor({ open, form, setForm, tab, setTab, saving, error, editing, onClose, onSave, setField, addMedia, updateMedia, removeMedia, addFaq, updateFaq, removeFaq }: any) {
-  const tabs = [['general', 'اطلاعات اصلی'], ['content', 'متن‌ها'], ['media', 'مدیا'], ['faq', 'FAQ']] as const;
-  if (!open) return null;
-  return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm md:items-center md:p-6">
-    <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="max-h-[94dvh] w-full max-w-4xl overflow-hidden rounded-t-[2rem] border border-white/10 bg-[#0b1220] shadow-2xl md:rounded-[2rem]">
-      <div className="flex items-center justify-between border-b border-white/10 px-5 py-4 md:px-7"><div><h2 className="font-black">{editing ? 'ویرایش سرویس' : 'ایجاد سرویس جدید'}</h2><p className="mt-1 text-xs text-white/35">اطلاعات سرویس، محتوای متنی، مدیا و سوالات متداول</p></div><button onClick={onClose} className="rounded-xl p-2 text-white/40 hover:bg-white/10"><X /></button></div>
-      <div className="flex overflow-x-auto border-b border-white/10 px-3">{tabs.map(([key, label]) => <button key={key} onClick={() => setTab(key)} className={`whitespace-nowrap border-b-2 px-4 py-3 text-xs ${tab === key ? 'border-cyan-400 text-cyan-300' : 'border-transparent text-white/40'}`}>{label}</button>)}</div>
-      <div className="max-h-[65dvh] overflow-y-auto p-5 md:p-7">
-        {error && <div className="mb-5 rounded-2xl bg-red-400/10 px-4 py-3 text-xs text-red-200">{error}</div>}
-        {tab === 'general' && <div className="grid gap-4 md:grid-cols-2"><Field label="Slug" hint="مثال: apple-id"><input className={inputClass} value={form.slug} onChange={e => setField('slug', e.target.value)} placeholder="apple-id" dir="ltr" /></Field><Field label="عنوان"><input className={inputClass} value={form.title} onChange={e => setField('title', e.target.value)} placeholder="اپل آیدی" /></Field><Field label="توضیحات کوتاه" full><textarea className={textareaClass} value={form.description} onChange={e => setField('description', e.target.value)} /></Field><Field label="Icon"><input className={inputClass} value={form.icon} onChange={e => setField('icon', e.target.value)} placeholder="apple" dir="ltr" /></Field><div className="flex items-center gap-3 self-end rounded-2xl border border-white/10 bg-white/[0.03] p-4"><button type="button" onClick={() => setField('active', !form.active)} className={`relative h-6 w-11 rounded-full transition ${form.active ? 'bg-cyan-400' : 'bg-white/15'}`}><span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition ${form.active ? 'right-1' : 'right-6'}`} /></button><div><div className="text-sm font-bold">سرویس فعال</div><div className="text-xs text-white/35">در Mini App نمایش داده شود</div></div></div></div>}
-        {tab === 'content' && <div className="space-y-5"><Field label="متن سرور" hint="serverText"><textarea className={`${textareaClass} min-h-40`} value={form.serverText ?? ''} onChange={e => setField('serverText', e.target.value)} placeholder="متن مربوط به سرور یا راهنمای اتصال..." /></Field><Field label="قوانین سرویس" hint="rulesText"><textarea className={`${textareaClass} min-h-52`} value={form.rulesText ?? ''} onChange={e => setField('rulesText', e.target.value)} placeholder="قوانین و شرایط استفاده از سرویس..." /></Field></div>}
-        {tab === 'media' && <div className="space-y-4"><div className="flex flex-wrap gap-2"><button onClick={() => addMedia('image')} className="flex items-center gap-2 rounded-xl bg-white/[0.06] px-3 py-2 text-xs hover:bg-white/10"><ImageIcon size={15} /> افزودن تصویر</button><button onClick={() => addMedia('video')} className="flex items-center gap-2 rounded-xl bg-white/[0.06] px-3 py-2 text-xs hover:bg-white/10"><Film size={15} /> افزودن ویدیو</button></div>{form.media.length === 0 ? <Empty text="هنوز مدیایی اضافه نشده است." /> : form.media.map((media: Media, index: number) => <div key={index} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-bold text-white/60">{media.type === 'image' ? 'تصویر' : 'ویدیو'} #{index + 1}</span><button onClick={() => removeMedia(index)} className="text-red-300/60"><Trash2 size={16} /></button></div><div className="grid gap-3 md:grid-cols-2"><input className={inputClass} value={media.url} onChange={e => updateMedia(index, { url: e.target.value })} placeholder="URL فایل" dir="ltr" /><input className={inputClass} value={media.title ?? ''} onChange={e => updateMedia(index, { title: e.target.value })} placeholder="عنوان (اختیاری)" />{media.type === 'video' && <input className={inputClass} value={media.thumbnailUrl ?? ''} onChange={e => updateMedia(index, { thumbnailUrl: e.target.value })} placeholder="URL تصویر کاور (اختیاری)" dir="ltr" />}</div></div>)}</div>}
-        {tab === 'faq' && <div className="space-y-4"><button onClick={addFaq} className="flex items-center gap-2 rounded-xl bg-cyan-400/10 px-3 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-400/15"><Plus size={15} /> افزودن سوال</button>{form.faqs.length === 0 ? <Empty text="هنوز سوال متداولی ثبت نشده است." /> : form.faqs.map((faq: Faq, index: number) => <div key={index} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-bold text-white/60">سوال #{index + 1}</span><button onClick={() => removeFaq(index)} className="text-red-300/60"><Trash2 size={16} /></button></div><input className={inputClass} value={faq.question} onChange={e => updateFaq(index, { question: e.target.value })} placeholder="سوال" /><textarea className={`${textareaClass} mt-3 min-h-24`} value={faq.answer} onChange={e => updateFaq(index, { answer: e.target.value })} placeholder="پاسخ" /></div>)}</div>}
-      </div>
-      <div className="flex gap-2 border-t border-white/10 p-4 md:p-5"><button onClick={onClose} className="rounded-2xl border border-white/10 px-5 py-3 text-sm text-white/60 hover:bg-white/5">انصراف</button><button disabled={saving} onClick={onSave} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-cyan-400 py-3 text-sm font-black text-slate-950 disabled:opacity-50">{saving ? 'در حال ذخیره...' : <><Check size={17} /> ذخیره سرویس</>}</button></div>
-    </motion.div>
+  return <div className="space-y-6">
+    <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><div className="mb-2 flex items-center gap-2 text-xs text-cyan-300/80"><span className="h-2 w-2 rounded-full bg-cyan-400" /> مدیریت محتوا</div><h1 className="text-2xl font-black tracking-tight md:text-3xl">سرویس‌ها</h1><p className="mt-2 text-sm text-white/45">سرویس‌های قابل نمایش در Mini App را از یکجا مدیریت کنید.</p></div><div className="flex gap-2"><button onClick={() => void load()} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-white/65 hover:bg-white/[0.08]" title="بروزرسانی"><RefreshCw size={18} /></button><button onClick={openCreate} className="flex items-center gap-2 rounded-2xl bg-cyan-400 px-5 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-500/10 hover:bg-cyan-300"><Plus size={18} /> سرویس جدید</button></div></header>
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[['کل سرویس‌ها', services.length], ['فعال', services.filter(s => s.active).length], ['غیرفعال', services.filter(s => !s.active).length], ['مدیا', services.reduce((n, s) => n + s.media.length, 0)]].map(([label, value]) => <div key={String(label)} className="rounded-3xl border border-white/10 bg-white/[0.035] p-4"><div className="text-xs text-white/40">{label}</div><div className="mt-2 text-2xl font-black">{value}</div></div>)}</div>
+    <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/[0.025] p-3 md:flex-row"><div className="relative flex-1"><Search className="absolute right-4 top-3.5 text-white/30" size={18} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="جستجو بر اساس عنوان، slug یا توضیحات..." className={`${inputClass} pr-11`} /></div><div className="flex rounded-2xl bg-white/[0.04] p-1">{([['all', 'همه'], ['active', 'فعال'], ['inactive', 'غیرفعال']] as const).map(([key, label]) => <button key={key} onClick={() => setStatus(key)} className={`rounded-xl px-4 py-2 text-xs transition ${status === key ? 'bg-white/10 text-white' : 'text-white/40'}`}>{label}</button>)}</div></div>
+    {error && !editorOpen && <div className="rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">{error}</div>}
+    {loading ? <div className="grid min-h-60 place-items-center rounded-3xl border border-white/10 bg-white/[0.02] text-white/40">در حال دریافت سرویس‌ها…</div> : filtered.length === 0 ? <div className="grid min-h-60 place-items-center rounded-3xl border border-dashed border-white/10 bg-white/[0.02] text-center"><div><div className="text-lg font-bold">سرویسی پیدا نشد</div><div className="mt-2 text-sm text-white/35">برای شروع یک سرویس جدید بسازید.</div></div></div> : <div className="grid gap-4 xl:grid-cols-2">{filtered.map(service => <motion.article layout key={service.id} className="group overflow-hidden rounded-3xl border border-white/10 bg-white/[0.035] p-5 transition hover:border-cyan-400/20 hover:bg-white/[0.05]"><div className="flex items-start justify-between gap-4"><div className="flex min-w-0 items-center gap-3"><div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-cyan-400/10 text-lg font-black text-cyan-300">{service.icon || '◈'}</div><div className="min-w-0"><h2 className="truncate font-bold">{service.title}</h2><div className="mt-1 text-xs text-white/35">{service.slug}</div></div></div><span className={`rounded-full px-3 py-1 text-[11px] ${service.active ? 'bg-emerald-400/10 text-emerald-300' : 'bg-white/10 text-white/40'}`}>{service.active ? 'فعال' : 'غیرفعال'}</span></div><p className="mt-4 line-clamp-2 min-h-10 text-sm leading-6 text-white/45">{service.description}</p><div className="mt-4 flex flex-wrap gap-2"><span className="rounded-xl bg-white/[0.05] px-3 py-1.5 text-xs text-white/45">{service.media.length} مدیا</span><span className="rounded-xl bg-white/[0.05] px-3 py-1.5 text-xs text-white/45">{service.faqs.length} سوال متداول</span>{service.serverText && <span className="rounded-xl bg-white/[0.05] px-3 py-1.5 text-xs text-white/45">متن سرور</span>}</div><div className="mt-5 flex gap-2 border-t border-white/5 pt-4"><button onClick={() => openEdit(service)} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-white/[0.06] py-2.5 text-xs font-bold text-white/70 hover:bg-white/10"><Edit3 size={15} /> ویرایش</button><button onClick={() => void toggle(service)} className="rounded-2xl border border-white/10 px-3 text-white/50 hover:bg-white/10"><Power size={16} /></button><button onClick={() => void remove(service)} className="rounded-2xl border border-red-400/10 px-3 text-red-300/60 hover:bg-red-400/10"><Trash2 size={16} /></button></div></motion.article>)}</div>}
+    {editorOpen && <ServiceEditor form={form} setForm={setForm} tab={tab} setTab={setTab} saving={saving} error={error} editing={editing} onClose={closeEditor} onSave={() => void save()} setField={setField} addMedia={addMedia} updateMedia={updateMedia} removeMedia={removeMedia} addFaq={addFaq} updateFaq={updateFaq} removeFaq={removeFaq} />}
+    <div className="fixed bottom-5 left-5 z-20 md:hidden"><button onClick={openCreate} className="grid h-14 w-14 place-items-center rounded-full bg-cyan-400 text-slate-950 shadow-xl shadow-cyan-500/20"><Plus /></button></div>
   </div>;
 }
 
+function ServiceEditor({ form, setForm, tab, setTab, saving, error, editing, onClose, onSave, setField, addMedia, updateMedia, removeMedia, addFaq, updateFaq, removeFaq }: any) {
+  const tabs = [['general', 'اطلاعات اصلی'], ['content', 'متن‌ها'], ['media', 'مدیا'], ['faq', 'FAQ']] as const;
+  return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm md:items-center md:p-6"><motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="max-h-[94dvh] w-full max-w-4xl overflow-hidden rounded-t-[2rem] border border-white/10 bg-[#0b1220] shadow-2xl md:rounded-[2rem]"><div className="flex items-center justify-between border-b border-white/10 px-5 py-4 md:px-7"><div><h2 className="font-black">{editing ? 'ویرایش سرویس' : 'ایجاد سرویس جدید'}</h2><p className="mt-1 text-xs text-white/35">اطلاعات سرویس، محتوای متنی، مدیا و سوالات متداول</p></div><button onClick={onClose} className="rounded-xl p-2 text-white/40 hover:bg-white/10"><X /></button></div><div className="flex overflow-x-auto border-b border-white/10 px-3">{tabs.map(([key, label]) => <button key={key} onClick={() => setTab(key)} className={`whitespace-nowrap border-b-2 px-4 py-3 text-xs ${tab === key ? 'border-cyan-400 text-cyan-300' : 'border-transparent text-white/40'}`}>{label}</button>)}</div><div className="max-h-[65dvh] overflow-y-auto p-5 md:p-7">{error && <div className="mb-5 rounded-2xl bg-red-400/10 px-4 py-3 text-xs text-red-200">{error}</div>}{tab === 'general' && <div className="grid gap-4 md:grid-cols-2"><Field label="Slug" hint="مثال: apple-id"><input className={inputClass} value={form.slug} onChange={e => setField('slug', e.target.value)} placeholder="apple-id" dir="ltr" /></Field><Field label="عنوان"><input className={inputClass} value={form.title} onChange={e => setField('title', e.target.value)} placeholder="اپل آیدی" /></Field><Field label="توضیحات کوتاه" full><textarea className={textareaClass} value={form.description} onChange={e => setField('description', e.target.value)} /></Field><Field label="Icon"><input className={inputClass} value={form.icon} onChange={e => setField('icon', e.target.value)} placeholder="apple" dir="ltr" /></Field><div className="flex items-center gap-3 self-end rounded-2xl border border-white/10 bg-white/[0.03] p-4"><button type="button" onClick={() => setField('active', !form.active)} className={`relative h-6 w-11 rounded-full transition ${form.active ? 'bg-cyan-400' : 'bg-white/15'}`}><span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition ${form.active ? 'right-1' : 'right-6'}`} /></button><div><div className="text-sm font-bold">سرویس فعال</div><div className="text-xs text-white/35">در Mini App نمایش داده شود</div></div></div></div>}{tab === 'content' && <div className="space-y-5"><Field label="متن سرور" hint="serverText"><textarea className={`${textareaClass} min-h-40`} value={form.serverText ?? ''} onChange={e => setField('serverText', e.target.value)} placeholder="متن مربوط به سرور یا راهنمای اتصال..." /></Field><Field label="قوانین سرویس" hint="rulesText"><textarea className={`${textareaClass} min-h-52`} value={form.rulesText ?? ''} onChange={e => setField('rulesText', e.target.value)} placeholder="قوانین و شرایط استفاده از سرویس..." /></Field></div>}{tab === 'media' && <div className="space-y-4"><div className="flex flex-wrap gap-2"><button onClick={() => addMedia('image')} className="flex items-center gap-2 rounded-xl bg-white/[0.06] px-3 py-2 text-xs hover:bg-white/10"><ImageIcon size={15} /> افزودن تصویر</button><button onClick={() => addMedia('video')} className="flex items-center gap-2 rounded-xl bg-white/[0.06] px-3 py-2 text-xs hover:bg-white/10"><Film size={15} /> افزودن ویدیو</button></div>{form.media.length === 0 ? <Empty text="هنوز مدیایی اضافه نشده است." /> : form.media.map((media: Media, index: number) => <div key={index} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-bold text-white/60">{media.type === 'image' ? 'تصویر' : 'ویدیو'} #{index + 1}</span><button onClick={() => removeMedia(index)} className="text-red-300/60"><Trash2 size={16} /></button></div><div className="grid gap-3 md:grid-cols-2"><input className={inputClass} value={media.url} onChange={e => updateMedia(index, { url: e.target.value })} placeholder="URL فایل" dir="ltr" /><input className={inputClass} value={media.title ?? ''} onChange={e => updateMedia(index, { title: e.target.value })} placeholder="عنوان (اختیاری)" />{media.type === 'video' && <input className={inputClass} value={media.thumbnailUrl ?? ''} onChange={e => updateMedia(index, { thumbnailUrl: e.target.value })} placeholder="URL تصویر کاور (اختیاری)" dir="ltr" />}</div></div>)}</div>}{tab === 'faq' && <div className="space-y-4"><button onClick={addFaq} className="flex items-center gap-2 rounded-xl bg-cyan-400/10 px-3 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-400/15"><Plus size={15} /> افزودن سوال</button>{form.faqs.length === 0 ? <Empty text="هنوز سوال متداولی ثبت نشده است." /> : form.faqs.map((faq: Faq, index: number) => <div key={index} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-bold text-white/60">سوال #{index + 1}</span><button onClick={() => removeFaq(index)} className="text-red-300/60"><Trash2 size={16} /></button></div><input className={inputClass} value={faq.question} onChange={e => updateFaq(index, { question: e.target.value })} placeholder="سوال" /><textarea className={`${textareaClass} mt-3 min-h-24`} value={faq.answer} onChange={e => updateFaq(index, { answer: e.target.value })} placeholder="پاسخ" /></div>)}</div>}</div><div className="flex gap-2 border-t border-white/10 p-4 md:p-5"><button onClick={onClose} className="rounded-2xl border border-white/10 px-5 py-3 text-sm text-white/60 hover:bg-white/5">انصراف</button><button disabled={saving} onClick={onSave} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-cyan-400 py-3 text-sm font-black text-slate-950 disabled:opacity-50">{saving ? 'در حال ذخیره...' : <><Check size={17} /> ذخیره سرویس</>}</button></div></motion.div></div>;
+}
 function Field({ label, hint, full, children }: { label: string; hint?: string; full?: boolean; children: React.ReactNode }) { return <label className={full ? 'md:col-span-2' : ''}><span className="mb-2 block text-xs font-bold text-white/65">{label} {hint && <span className="mr-1 font-normal text-white/25">{hint}</span>}</span>{children}</label>; }
 function Empty({ text }: { text: string }) { return <div className="rounded-2xl border border-dashed border-white/10 py-10 text-center text-xs text-white/30">{text}</div>; }
