@@ -1,4 +1,5 @@
 import { InlineKeyboardMarkup } from '@grammyjs/conversations/out/deps.node';
+import { Keyboard } from 'grammy';
 export class AdminBotKeyboard {
   static user(): InlineKeyboardMarkup {
     return {
@@ -7,18 +8,19 @@ export class AdminBotKeyboard {
       ],
     };
   }
-  static main(): InlineKeyboardMarkup {
-    return {
-      inline_keyboard: [
-        [{ text: '🛍 مدیریت سرویس‌ها', callback_data: 'admin:services' }],
-        [
-          { text: '💰 مدیریت مالی', callback_data: 'admin:finance' },
-          { text: '📦 مدیریت سفارشات', callback_data: 'admin:orders' },
-        ],
-        [{ text: '👥 مدیریت کاربران', callback_data: 'admin:users' }],
-        [{ text: '🚀 باز کردن مینی‌اپ', callback_data: 'web:url' }],
-      ],
-    };
+  static main(): Keyboard {
+    const keyboard = new Keyboard()
+      .text('🛍 مدیریت سرویس‌ها')
+      .text('💰 مدیریت مالی')
+      .row()
+      .text('📦 مدیریت سفارشات')
+      .text('👥 مدیریت کاربران')
+      .row()
+      .text('🚀 باز کردن مینی‌اپ')
+      .resized()
+      .persistent();
+
+    return keyboard;
   }
   static services(): InlineKeyboardMarkup {
     return {

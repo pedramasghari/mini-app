@@ -24,6 +24,7 @@ import { AdminBotConversationService } from '../conversations/admin-bot.conversa
 import { AdminBotKeyboard } from '../keyboard/admin-bot.keyboard';
 import type { BotKeyboard } from '../admin-bot.types';
 import { InlineKeyboardMarkup } from '@grammyjs/conversations/out/deps.node';
+import { ReplyKeyboardMarkup } from 'node_modules/grammy/out/types.node';
 
 const proxyUrl = process.env.TELEGRAM_PROXY_URL ?? 'http://127.0.0.1:2080';
 const agent = new HttpsProxyAgent(proxyUrl);
@@ -327,6 +328,30 @@ export class AdminBotRuntimeService implements OnModuleInit, OnModuleDestroy {
       const id = Number(ctx.from.id);
       const text = ctx.message.text.trim();
 
+      if (text === '🛍 مدیریت سرویس‌ها') {
+        if (!this.isAdmin(id)) return;
+        await this.showServices(ctx);
+      }
+      if (text === '💰 مدیریت مالی') {
+        if (!this.isAdmin(id)) return;
+        await this.showFinance(ctx);
+      }
+      if (text === '📦 مدیریت سفارشات') {
+        if (!this.isAdmin(id)) return;
+        await this.showOrders(ctx);
+      }
+      if (text === '👥 مدیریت کاربران') {
+        if (!this.isAdmin(id)) return;
+        await this.showUsers(ctx);
+      }
+      if (text === '🚀 باز کردن مینی‌اپ') {
+        if (!this.isAdmin(id)) return;
+        await this.send(
+          ctx,
+          `برای باز کردن مینی‌اپ روی لینک زیر کلیک کنید:\n\n${this.appUrl()}`,
+        );
+      }
+
       if (!this.isAdmin(id)) {
         await this.send(
           ctx,
@@ -352,8 +377,6 @@ export class AdminBotRuntimeService implements OnModuleInit, OnModuleDestroy {
         }
         return;
       }
-
-      await this.showMain(ctx, id);
     });
   }
 
@@ -371,7 +394,7 @@ export class AdminBotRuntimeService implements OnModuleInit, OnModuleDestroy {
   private async send(
     ctx: Context,
     text: string,
-    replyMarkup?: InlineKeyboardMarkup,
+    replyMarkup?: ReplyKeyboardMarkup | InlineKeyboardMarkup,
   ) {
     return ctx.reply(
       text,
