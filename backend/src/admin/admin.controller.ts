@@ -1,7 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { AdminGuard } from './admin.guard';
 import type { Request } from 'express';
-import { CommerceService, CreateServiceInput } from '../commerce/commerce.service';
+import { CommerceService } from '../commerce/commerce.service';
+import type { CreateServiceInput } from '../commerce/commerce.service';
 import type { ServiceMedia, ServiceFaq } from '../commerce/entities/commerce.entity';
 
 @Controller('admin')
