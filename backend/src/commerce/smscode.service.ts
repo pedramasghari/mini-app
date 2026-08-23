@@ -149,6 +149,60 @@ export class SmsCodeService implements OnModuleInit {
 
   async sync(row: SmsCodeOrder) { if (!row.providerOrderId) return this.get(row.userId, row.id); const provider = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`); return this.applyProviderState(row, provider); }
 
+  async resend(userId: string, localId: string) {
+    const row = await this.getOwned(userId, localId);
+    if (!row.providerOrderId) throw new BadRequestException('سفارش هنوز در سرویس شماره‌گذاری ایجاد نشده است.');
+    const current = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`);
+    if (!current.can_resend) {
+      const availableAt = current.resend_available_at ? ` زمان مجاز بعدی: ${current.resend_available_at}` : '';
+      throw new BadRequestException(`ارسال مجدد پیامک برای این سفارش در حال حاضر مجاز نیست.${availableAt}`);
+    }
+    try {
+      await this.request<{ order_id: number; status: string; resent: boolean }>('/orders/resend', {
+        method: 'POST',
+        body: JSON.stringify({ id: Number(row.providerOrderId) }),
+      });
+      const provider = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`);
+      return this.applyProviderState(row, provider);
+    } catch (error) {
+      if (error instanceof ProviderApiError) {
+        if (error.code === 'NOT_FOUND') throw new NotFoundException('سفارش در سرویس شماره‌گذاری پیدا نشد.');
+        if (error.statusCode === 409 || error.code === 'CONFLICT') throw new ConflictException(error.message);
+        if (error.statusCode >= 400 && error.statusCode < 500) throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  async cancel(userId: string, localId: string) {
+    const row = await this.getOwned(userId, localId);
+    if (!row.providerOrderId) {
+      if (row.status === 'PROVIDER_PENDING' || row.status === 'CREATING') throw new ConflictException('سفارش هنوز در حال ایجاد/بررسی است و فعلاً قابل لغو نیست.');
+      throw new BadRequestException('سفارش شناسه سرویس شماره‌گذاری ندارد.');
+    }
+    const current = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`);
+    if (!current.can_cancel) {
+      const availableAt = current.cancel_available_at ? ` زمان مجاز بعدی: ${current.cancel_available_at}` : '';
+      throw new BadRequestException(`لغو این سفارش در حال حاضر مجاز نیست.${availableAt}`);
+    }
+    try {
+      await this.request<{ order_id: number; status: string; refund_amount: ProviderMoney; new_balance: ProviderMoney }>('/orders/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ id: Number(row.providerOrderId) }),
+      });
+      const provider = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`);
+      return this.applyProviderState(row, provider);
+    } catch (error) {
+      if (error instanceof ProviderApiError) {
+        if (error.code === 'NOT_FOUND') throw new NotFoundException('سفارش در سرویس شماره‌گذاری پیدا نشد.');
+        if (error.code === 'CANCEL_TOO_EARLY') throw new ConflictException('لغو سفارش تا ۲ دقیقه پس از ایجاد امکان‌پذیر نیست.');
+        if (error.statusCode === 409 || error.code === 'CONFLICT') throw new ConflictException(error.message);
+        if (error.statusCode >= 400 && error.statusCode < 500) throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+  }
+
   private async getOwned(userId: string, localId: string) { const row = await this.orders.findOne({ where: { id: localId, userId } }); if (!row) throw new NotFoundException('سفارش شماره پیدا نشد.'); return row; }
 
   async refundIfNeeded(row: SmsCodeOrder, reason: string) {
