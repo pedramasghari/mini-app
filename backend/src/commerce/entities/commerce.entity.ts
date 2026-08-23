@@ -110,7 +110,7 @@ export class SmsCodeOrder {
   @Column({ type: 'decimal', precision: 30, scale: 8 }) chargedAmount!: string;
   @Column({ length: 10 }) currency!: string;
   @Column({ type: 'decimal', precision: 30, scale: 8, nullable: true }) providerAmount!: string | null;
-  @Column({ length: 40, nullable: true }) phoneNumber!: string | null;
+  @Column({ type: 'varchar', length: 40, nullable: true }) phoneNumber!: string | null;
   @Column({ type: 'timestamptz', nullable: true }) expiresAt!: Date | null;
   @Column({ type: 'timestamptz', nullable: true }) resendAvailableAt!: Date | null;
   @Column({ type: 'timestamptz', nullable: true }) cancelAvailableAt!: Date | null;
