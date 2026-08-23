@@ -6,8 +6,18 @@ import { WalletsModule } from './wallets/wallets.module';
 import { AuthModule } from './auth/auth.module';
 import { CommerceModule } from './commerce/commerce.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { AdminBotModule } from './admin-bot/admin-bot.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, UsersModule, WalletsModule, AuthModule, CommerceModule, NotificationsModule],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    DatabaseModule,
+    UsersModule,
+    WalletsModule,
+    AuthModule,
+    NotificationsModule,
+    CommerceModule,
+    AdminBotModule,
+  ],
 })
 export class AppModule {}
