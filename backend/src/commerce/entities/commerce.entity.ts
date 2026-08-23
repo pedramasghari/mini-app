@@ -1,16 +1,11 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
-export type ServiceMedia = {
-  type: 'image' | 'video';
-  url: string;
-  title?: string;
-  thumbnailUrl?: string;
-};
-
 export type ServiceFaq = {
   question: string;
   answer: string;
 };
+
+export type GuideMediaType = 'image' | 'video';
 
 @Entity('services')
 export class Service {
@@ -20,7 +15,6 @@ export class Service {
   @Column({ length: 500 }) description!: string;
   @Column({ type: 'text', nullable: true }) serverText!: string | null;
   @Column({ type: 'text', nullable: true }) rulesText!: string | null;
-  @Column({ type: 'jsonb', default: [] }) media!: ServiceMedia[];
   @Column({ type: 'jsonb', default: [] }) faqs!: ServiceFaq[];
   @Column({ length: 80, default: 'box' }) icon!: string;
   @Column({ default: true }) active!: boolean;
@@ -48,7 +42,7 @@ export class ActivationGuide {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index({ unique: true }) @Column('uuid') productId!: string;
   @Column({ length: 160 }) title!: string;
-  @Column({ type: 'varchar', length: 500, nullable: true }) description!: string | null;
+  @Column({ type: 'varchar', length: 1000, nullable: true }) description!: string | null;
   @Column({ default: true }) active!: boolean;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
@@ -61,7 +55,8 @@ export class ActivationStep {
   @Column('int') position!: number;
   @Column({ length: 160 }) title!: string;
   @Column({ type: 'text' }) content!: string;
-  @Column({ type: 'varchar', length: 500, nullable: true }) imageUrl!: string | null;
+  @Column({ type: 'varchar', length: 10, nullable: true }) mediaType!: GuideMediaType | null;
+  @Column({ type: 'varchar', length: 1000, nullable: true }) mediaUrl!: string | null;
   @Column({ default: false }) requiresInput!: boolean;
   @Column({ type: 'varchar', length: 80, nullable: true }) inputKey!: string | null;
   @Column({ type: 'varchar', length: 160, nullable: true }) inputLabel!: string | null;
