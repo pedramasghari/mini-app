@@ -1,6 +1,6 @@
-export type User={id:string;telegramId:string;username:string|null;firstName:string|null;lastName:string|null;photoUrl:string|null};
+export type User={id:string;telegramId:string;username:string|null;firstName:string|null;lastName:string|null;photoUrl:string|null;role:'USER'|'ADMIN'};
 export type Wallet={id:string;balance:string;currency:string};
-export type Me={user:User;wallet:Wallet|null};
+export type Me={user:User;wallet:Wallet|null;isAdmin:boolean};
 export type ServiceMedia={type:'image'|'video';url:string;title?:string;thumbnailUrl?:string};
 export type ServiceFaq={question:string;answer:string};
 export type Service={id:string;slug:string;title:string;description:string;serverText:string|null;rulesText:string|null;media:ServiceMedia[];faqs:ServiceFaq[];icon:string;active:boolean};
