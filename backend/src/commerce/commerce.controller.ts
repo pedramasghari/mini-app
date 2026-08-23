@@ -8,6 +8,7 @@ import { mkdirSync } from 'node:fs';
 import { AuthService } from '../auth/auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CommerceService } from './commerce.service';
+import { SmsCodeService } from './smscode.service';
 
 const COOKIE = 'miniapp_session';
 mkdirSync('./uploads/receipts', { recursive: true });
@@ -20,6 +21,7 @@ export class CommerceController {
     private readonly commerce: CommerceService,
     private readonly auth: AuthService,
     private readonly notifications: NotificationsService,
+    private readonly smsCode: SmsCodeService,
   ) {}
 
   private async userId(req: Request) {
@@ -39,6 +41,22 @@ export class CommerceController {
   @Get('orders/me') async orders(@Req() req: Request) { return this.commerce.myOrders(await this.userId(req)); }
   @Get('transactions/me') async transactions(@Req() req: Request) { return this.commerce.myTransactions(await this.userId(req)); }
   @Get('payment-methods') paymentMethods() { return this.commerce.paymentMethods(); }
+
+  @Post('smscode/orders') async createSmsOrder(@Req() req: Request, @Body('productId') productId?: string) {
+    return this.smsCode.create(await this.userId(req), productId);
+  }
+
+  @Get('smscode/orders/:id') async smsOrder(@Req() req: Request, @Param('id') id: string) {
+    return this.smsCode.get(await this.userId(req), id);
+  }
+
+  @Post('smscode/orders/:id/resend') async resendSms(@Req() req: Request, @Param('id') id: string) {
+    return this.smsCode.resend(await this.userId(req), id);
+  }
+
+  @Post('smscode/orders/:id/cancel') async cancelSms(@Req() req: Request, @Param('id') id: string) {
+    return this.smsCode.cancel(await this.userId(req), id);
+  }
 
   @Post('payments/card-transfer')
   @UseInterceptors(FileInterceptor('receipt', {
