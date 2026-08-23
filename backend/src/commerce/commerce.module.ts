@@ -4,7 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { WalletsModule } from '../wallets/wallets.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { User } from '../users/entities/user.entity';
-import { ActivationGuide, ActivationProgress, ActivationStep, Order, OrderInput, PaymentMethod, PaymentRequest, Product, Service, SmsCodeOrder, WalletTransaction } from './entities/commerce.entity';
+import { ActivationGuide, ActivationProgress, ActivationStep, Order, OrderInput, PaymentMethod, PaymentRequest, Product, Service, ServiceSmsConfig, Service, SmsCodeOrder, SmsCodeWebhookEvent, WalletTransaction } from './entities/commerce.entity';
 import { CommerceService } from './commerce.service';
 import { CommerceController } from './commerce.controller';
 import { SmsCodeService } from './smscode.service';
@@ -17,12 +17,14 @@ import { SmsCodeService } from './smscode.service';
     TypeOrmModule.forFeature([
       User,
       Service,
+      ServiceSmsConfig,
       Product,
       ActivationGuide,
       ActivationProgress,
       ActivationStep,
       Order,
       SmsCodeOrder,
+      SmsCodeWebhookEvent,
       OrderInput,
       PaymentMethod,
       PaymentRequest,
