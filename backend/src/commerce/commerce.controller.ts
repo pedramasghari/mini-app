@@ -59,7 +59,7 @@ export class CommerceController {
       where: {
         userId,
         serviceId,
-        status: In(['ACTIVE', 'OTP_RECEIVED']),
+        status: In(['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED']),
       },
       order: { createdAt: 'DESC' },
     });
