@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { diskStorage } from 'multer';
 import { extname } from 'node:path';
@@ -42,7 +43,7 @@ export class CommerceController {
   @Get('transactions/me') async transactions(@Req() req: Request) { return this.commerce.myTransactions(await this.userId(req)); }
   @Get('payment-methods') paymentMethods() { return this.commerce.paymentMethods(); }
 
-  @Post('smscode/orders') async createSmsOrder(@Req() req: Request, @Body('productId') productId?: string) {
+  @Post('smscode/orders') async createSmsOrder(@Req() req: Request, @Body('productId') productId: string) {
     return this.smsCode.create(await this.userId(req), productId);
   }
 
@@ -56,6 +57,15 @@ export class CommerceController {
 
   @Post('smscode/orders/:id/cancel') async cancelSms(@Req() req: Request, @Param('id') id: string) {
     return this.smsCode.cancel(await this.userId(req), id);
+  }
+
+  /** SMSCode calls this endpoint directly. It is intentionally outside auth/session guards. */
+  @Post('webhooks/smscode')
+  async smscodeWebhook(@Req() req: RawBodyRequest<Request>, @Body() body: Record<string, unknown>) {
+    const signature = req.header('X-Webhook-Signature');
+    const rawBody = req.rawBody;
+    if (!rawBody) throw new BadRequestException('Raw webhook body is unavailable.');
+    return this.smsCode.handleWebhook(rawBody, signature, body as never);
   }
 
   @Post('payments/card-transfer')
@@ -74,17 +84,9 @@ export class CommerceController {
     @UploadedFile() receipt?: UploadedReceipt,
   ) {
     if (!receipt) throw new BadRequestException('Receipt is required');
-
     const userId = await this.userId(req);
     const payment = await this.commerce.createPayment(userId, amount, methodId, receipt.path);
-
-    await this.notifications.create(userId, {
-      type: 'DEPOSIT_PENDING',
-      title: 'درخواست شارژ ثبت شد',
-      message: `درخواست شارژ به مبلغ ${payment.amount} ${payment.currency} ثبت شد و در انتظار بررسی است.`,
-      data: { paymentId: payment.id, amount: payment.amount, status: payment.status },
-    });
-
+    await this.notifications.create(userId, { type: 'DEPOSIT_PENDING', title: 'درخواست شارژ ثبت شد', message: `درخواست شارژ به مبلغ ${payment.amount} ${payment.currency} ثبت شد و در انتظار بررسی است.`, data: { paymentId: payment.id, amount: payment.amount, status: payment.status } });
     return payment;
   }
 }
