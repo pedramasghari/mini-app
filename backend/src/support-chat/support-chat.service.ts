@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
 import { AdminBotRuntimeService } from '../admin-bot/runtime/admin-bot.runtime.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -21,9 +21,7 @@ export class SupportChatService {
 
   private async conversationForUser(userId: string) {
     let conversation = await this.conversations.findOne({ where: { userId } });
-    if (!conversation) {
-      conversation = await this.conversations.save(this.conversations.create({ userId }));
-    }
+    if (!conversation) conversation = await this.conversations.save(this.conversations.create({ userId }));
     return conversation;
   }
 
@@ -37,19 +35,9 @@ export class SupportChatService {
 
   async listForAdmins() {
     const conversations = await this.conversations.find({ order: { lastMessageAt: 'DESC', updatedAt: 'DESC' } });
-    const userIds = conversations.map((item) => item.userId);
-    const users = userIds.length ? await this.usersRepositoryByIds(userIds) : [];
+    const users = await this.users.findByIds(conversations.map((item) => item.userId));
     const usersById = new Map(users.map((user) => [user.id, user]));
     return conversations.map((conversation) => ({ ...conversation, user: usersById.get(conversation.userId) ?? null }));
-  }
-
-  private async usersRepositoryByIds(ids: string[]) {
-    const result: Awaited<ReturnType<UsersService['findById']>>[] = [];
-    for (const id of ids) {
-      const user = await this.users.findById(id);
-      if (user) result.push(user);
-    }
-    return result;
   }
 
   async getForAdmin(conversationId: string) {
@@ -67,27 +55,18 @@ export class SupportChatService {
       : await this.conversationForUser(userId);
     if (!conversation) throw new NotFoundException('گفتگوی پشتیبانی پیدا نشد.');
     if (role === 'USER' && conversation.userId !== userId) throw new NotFoundException('گفتگوی پشتیبانی پیدا نشد.');
-
     const body = (input.body ?? '').trim();
     const attachments = input.attachments ?? [];
     if (!body && !attachments.length) throw new Error('پیام نمی‌تواند خالی باشد.');
 
     const message = await this.messages.save(this.messages.create({
-      conversationId: conversation.id,
-      senderId: userId,
-      senderRole: role,
-      body,
-      replyToMessageId: input.replyToMessageId ?? null,
-      attachments,
-      status: 'SENT',
+      conversationId: conversation.id, senderId: userId, senderRole: role, body,
+      replyToMessageId: input.replyToMessageId ?? null, attachments, status: 'SENT',
     }));
-
     conversation.lastMessageAt = message.createdAt;
     conversation.lastMessagePreview = body || (attachments[0]?.type === 'IMAGE' ? '📷 تصویر' : '🎬 ویدیو');
-    if (role === 'USER') conversation.userUnreadCount += 1;
-    else conversation.adminUnreadCount += 1;
+    if (role === 'USER') conversation.userUnreadCount += 1; else conversation.adminUnreadCount += 1;
     await this.conversations.save(conversation);
-
     await this.notifyOtherSide(conversation, message, role);
     return message;
   }
@@ -95,34 +74,19 @@ export class SupportChatService {
   private async notifyOtherSide(conversation: SupportConversation, message: SupportMessage, senderRole: SupportSenderRole) {
     const text = message.body || (message.attachments[0]?.type === 'IMAGE' ? '📷 تصویر جدید' : '🎬 ویدیوی جدید');
     if (senderRole === 'USER') {
-      const admins = await this.usersRepositoryByIds(await this.adminIds());
+      const admins = await this.users.findAdmins();
       await Promise.all(admins.map((admin) => this.notifyUser(admin.id, 'پیام جدید پشتیبانی', text, conversation.id, message.id)));
       return;
     }
     await this.notifyUser(conversation.userId, 'پیام جدید از پشتیبانی', text, conversation.id, message.id);
   }
 
-  private async adminIds() {
-    // The UsersService intentionally exposes small primitives; admin ids are resolved from the known admin-bot recipients.
-    // The admin guard/session still authorizes all admin endpoints. For notifications we use the configured admin ids.
-    const configured = process.env.ADMIN_TELEGRAM_IDS?.split(',').map((value) => value.trim()).filter(Boolean) ?? [];
-    const ids: string[] = [];
-    for (const telegramId of configured) {
-      const user = await this.users.findByTelegramId(telegramId);
-      if (user) ids.push(user.id);
-    }
-    return ids;
-  }
-
   private async notifyUser(userId: string, title: string, message: string, conversationId: string, messageId: string) {
     const online = this.notifications.isOnline(userId);
-    const notification = await this.notifications.create(userId, { type: 'SUPPORT_MESSAGE', title, message, data: { conversationId, messageId } });
+    await this.notifications.create(userId, { type: 'SUPPORT_MESSAGE', title, message, data: { conversationId, messageId } });
     if (!online) {
       const user = await this.users.findById(userId).catch(() => null);
-      if (user?.telegramId) {
-        await this.telegram.sendToTelegram(user.telegramId, `💬 ${title}\n${message}\n\nبرای مشاهده گفتگو وارد مینی‌اپ شوید.`).catch(() => undefined);
-      }
+      if (user?.telegramId) await this.telegram.sendToTelegram(user.telegramId, `💬 ${title}\n${message}\n\nبرای مشاهده گفتگو وارد مینی‌اپ شوید.`).catch(() => undefined);
     }
-    return notification;
   }
 }
