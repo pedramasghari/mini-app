@@ -12,6 +12,12 @@ const WITHDRAW = 'WITHDRAW';
 const WITHDRAW_REFUND = 'WITHDRAW_REFUND';
 const REFERENCE = 'WITHDRAWAL_REQUEST';
 
+function normalizeDecimal(value: unknown): string {
+  const normalized = String(value ?? '').trim();
+  if (!/^\d+(\.\d{1,8})?$/.test(normalized)) throw new BadRequestException('موجودی کیف پول نامعتبر است.');
+  return normalized;
+}
+
 function normalizeAmount(value: string): string {
   const amount = String(value ?? '').trim().replace(/,/g, '');
   if (!/^\d+(\.\d{1,8})?$/.test(amount) || Number(amount) <= 0) throw new BadRequestException('مبلغ برداشت نامعتبر است.');
@@ -40,21 +46,24 @@ export class WithdrawalsService {
     const amount = normalizeAmount(input.amount);
 
     const result = await this.dataSource.transaction(async (manager) => {
-      const wallet = await manager.getRepository(Wallet).createQueryBuilder('w')
+      const walletRepo = manager.getRepository(Wallet);
+      const wallet = await walletRepo.createQueryBuilder('w')
         .where('w.userId = :userId', { userId }).andWhere('w.currency = :currency', { currency: CURRENCY })
         .setLock('pessimistic_write').getOne();
       if (!wallet) throw new NotFoundException('کیف پول پیدا نشد.');
 
+      const balanceBefore = normalizeDecimal(wallet.balance);
       const updated = await manager.query(
-        `UPDATE wallets SET balance = balance - $1, "updatedAt" = NOW() WHERE id = $2 AND balance >= $1 RETURNING balance AS "newBalance"`,
+        `UPDATE wallets SET balance = balance - CAST($1 AS numeric), "updatedAt" = NOW() WHERE id = $2 AND balance >= CAST($1 AS numeric)`,
         [amount, wallet.id],
-      ) as Array<{ newBalance: string }>;
-      if (!updated.length) throw new BadRequestException('موجودی کیف پول کافی نیست.');
-      const balanceBefore = String(wallet.balance);
-      const balanceAfter = String(updated[0].newBalance);
-      if (!balanceAfter || balanceAfter === 'undefined' || !/^[-+]?\d+(\.\d+)?$/.test(balanceAfter)) {
-        throw new BadRequestException('موجودی کیف پول پس از برداشت نامعتبر است.');
-      }
+      );
+      if (updated === undefined) throw new BadRequestException('خطا در به‌روزرسانی موجودی کیف پول.');
+
+      const afterWallet = await walletRepo.findOne({ where: { id: wallet.id } });
+      if (!afterWallet) throw new NotFoundException('کیف پول پس از برداشت پیدا نشد.');
+      const balanceAfter = normalizeDecimal(afterWallet.balance);
+      if (Number(balanceAfter) < 0 || Number(balanceAfter) > Number(balanceBefore)) throw new BadRequestException('موجودی کیف پول پس از برداشت نامعتبر است.');
+      if (Number(balanceBefore) < Number(amount)) throw new BadRequestException('موجودی کیف پول کافی نیست.');
 
       const saved = await manager.getRepository(WithdrawalRequest).save(manager.getRepository(WithdrawalRequest).create({
         userId, cardNumber, cardHolderName, amount, currency: CURRENCY, status: 'PENDING',
@@ -81,25 +90,24 @@ export class WithdrawalsService {
 
   async cancel(userId: string, id: string) {
     const result = await this.dataSource.transaction(async (manager) => {
+      const walletRepo = manager.getRepository(Wallet);
       const request = await manager.getRepository(WithdrawalRequest).createQueryBuilder('r')
         .where('r.id = :id AND r.userId = :userId', { id, userId }).setLock('pessimistic_write').getOne();
       if (!request) throw new NotFoundException('درخواست برداشت پیدا نشد.');
       if (request.status !== 'PENDING') throw new BadRequestException('فقط درخواست در حال انجام قابل لغو است.');
 
-      const wallet = await manager.getRepository(Wallet).createQueryBuilder('w')
+      const wallet = await walletRepo.createQueryBuilder('w')
         .where('w.userId = :userId AND w.currency = :currency', { userId, currency: request.currency }).setLock('pessimistic_write').getOne();
       if (!wallet) throw new NotFoundException('کیف پول پیدا نشد.');
 
-      const balanceBefore = String(wallet.balance);
-      const updated = await manager.query(
-        `UPDATE wallets SET balance = balance + $1, "updatedAt" = NOW() WHERE id = $2 RETURNING balance AS "newBalance"`,
+      const balanceBefore = normalizeDecimal(wallet.balance);
+      await manager.query(
+        `UPDATE wallets SET balance = balance + CAST($1 AS numeric), "updatedAt" = NOW() WHERE id = $2`,
         [request.amount, wallet.id],
-      ) as Array<{ newBalance: string }>;
-      if (!updated.length) throw new NotFoundException('کیف پول پیدا نشد.');
-      const balanceAfter = String(updated[0].newBalance);
-      if (!balanceAfter || balanceAfter === 'undefined' || !/^[-+]?\d+(\.\d+)?$/.test(balanceAfter)) {
-        throw new BadRequestException('موجودی کیف پول پس از بازگشت نامعتبر است.');
-      }
+      );
+      const afterWallet = await walletRepo.findOne({ where: { id: wallet.id } });
+      if (!afterWallet) throw new NotFoundException('کیف پول پس از بازگشت پیدا نشد.');
+      const balanceAfter = normalizeDecimal(afterWallet.balance);
 
       request.status = 'CANCELLED'; request.cancelledAt = new Date();
       await manager.getRepository(WithdrawalRequest).save(request);
@@ -141,9 +149,7 @@ export class WithdrawalsService {
       request.status = 'COMPLETED'; request.receiptPath = receiptPath; request.completedAt = new Date(); request.completedBy = adminUserId;
       return manager.getRepository(WithdrawalRequest).save(request);
     });
-    try {
-      await this.notifications.create(result.userId, { type: 'WITHDRAWAL_COMPLETED', title: 'برداشت شما انجام شد', message: `درخواست برداشت ${result.amount} ${result.currency} واریز شد.`, data: { withdrawalId: result.id, amount: result.amount, status: result.status } });
-    } catch { /* notification failure must not undo a committed financial transaction */ }
+    try { await this.notifications.create(result.userId, { type: 'WITHDRAWAL_COMPLETED', title: 'برداشت شما انجام شد', message: `درخواست برداشت ${result.amount} ${result.currency} واریز شد.`, data: { withdrawalId: result.id, amount: result.amount, status: result.status } }); } catch { /* notification failure must not undo a committed financial transaction */ }
     return result;
   }
 }
