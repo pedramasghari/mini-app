@@ -5,6 +5,7 @@ import { Me } from "./types";
 import { CreditCard, Home, ShoppingBag, WalletCards } from "lucide-react";
 import { fa } from "@/lib/api";
 import ServiceCatalogV2 from "./ServiceCatalogV2";
+import ActiveNumberOrders from "./ActiveNumberOrders";
 import { useAppStore } from "@/context/useApp";
 
 export default function PanelView({ me }: { me: Me }) {
@@ -23,6 +24,8 @@ export default function PanelView({ me }: { me: Me }) {
       </section>
 
       <div className="mt-3"><button type="button" onClick={() => setActiveTab("deposit")} className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[.045] p-3 text-right transition hover:bg-white/[.07]"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-cyan-300/10 text-cyan-200"><WalletCards size={21}/></span><span className="min-w-0 flex-1"><span className="block text-xs text-white/40">موجودی کیف پول</span><span className="mt-1 block truncate text-lg font-black">{fa(wallet?.balance ?? 0)} <small className="text-xs font-medium text-white/40">تومان</small></span></span><span className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-black">شارژ</span></button></div>
+
+      <ActiveNumberOrders />
 
       <div className="mt-7 flex min-w-0 items-end justify-between gap-3 sm:mt-8"><div className="min-w-0"><p className="text-xs font-bold text-cyan-300/60">سرویس‌ها</p><h2 className="mt-1 truncate text-xl font-black sm:text-2xl">خرید سرویس</h2></div><ShoppingBag className="shrink-0 text-white/35" size={21}/></div>
       <ServiceCatalogV2 />
