@@ -56,8 +56,6 @@ export class NumberOrdersController {
         order: { createdAt: 'DESC' },
       });
 
-      // Normalize old SMSCODE_ORDER transactions to the durable NumberOrder
-      // whenever the order is opened, so purchase and refund share one reference.
       for (const transaction of legacy) {
         transaction.referenceType = 'NUMBER_ORDER';
         transaction.referenceId = order.id;
@@ -90,27 +88,40 @@ export class NumberOrdersController {
   @Post('by-sms/:smsOrderId/cancel')
   async cancelBySms(@Req() req: Request, @Param('smsOrderId') smsOrderId: string) {
     const userId = await this.userId(req);
-    const numberOrder = await this.numberOrders.findOne({ where: { userId, smsCodeOrderId: smsOrderId } });
-    if (!numberOrder) throw new NotFoundException('سفارش شماره پیدا نشد.');
+
+    // The card can become visible immediately after the provider allocates a
+    // number, while the background sync has not created NumberOrder yet.
+    // Materialize it first so all cancellation entry points share one path.
+    const numberOrder = await this.orders.ensureForSmsOrder(userId, smsOrderId);
+    if (!numberOrder) {
+      throw new NotFoundException('سفارش شماره پیدا نشد.');
+    }
 
     const cancelled = await this.smsCode.cancel(userId, smsOrderId);
 
+    // smsCode.cancel creates the refund against the SMSCODE_ORDER reference.
+    // Move every transaction (purchase + refund) to the durable NumberOrder.
     const linked = await this.transactions.find({
       where: { userId, referenceType: 'SMSCODE_ORDER', referenceId: smsOrderId },
       order: { createdAt: 'ASC' },
     });
+
     for (const transaction of linked) {
       transaction.referenceType = 'NUMBER_ORDER';
       transaction.referenceId = numberOrder.id;
       await this.transactions.save(transaction);
     }
 
-    await this.orders.ensureForSmsOrder(userId, smsOrderId);
+    // Refresh the durable order after cancellation so its persisted status and
+    // metadata reflect the provider response.
+    const finalOrder = await this.orders.ensureForSmsOrder(userId, smsOrderId);
+
     return {
       ...cancelled,
       orderNumber: numberOrder.orderNumber,
       numberOrderId: numberOrder.id,
       transactions: linked,
+      numberOrder: finalOrder,
     };
   }
 }
