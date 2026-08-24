@@ -5,21 +5,22 @@ import { useEffect, useState } from "react";
 import SmsOrderCard, { SmsOrderCardData } from "@/components/service/SmsOrderCard";
 import { api } from "@/lib/api";
 
- type OtpCode = { code: string | null; message: string | null; revision: number; receivedAt: string };
- type Transaction = { id: string; type: string; amount: string; currency: string; balanceBefore: string; balanceAfter: string; description: string | null; createdAt: string };
- type NumberOrder = {
-   id: string;
-   orderNumber: string;
-   status: string;
-   phoneNumber: string | null;
-   amount: string;
-   currency: string;
-   createdAt: string;
-   product: { id: string; title: string; icon: string; currency: string } | null;
-   otpCodes: OtpCode[];
-   transactions: Transaction[];
-   metadata: { expiresAt?: string | null };
- };
+type OtpCode = { code: string | null; message: string | null; revision: number; receivedAt: string };
+type Transaction = { id: string; type: string; amount: string; currency: string; balanceBefore: string; balanceAfter: string; description: string | null; createdAt: string };
+type NumberOrder = {
+  id: string;
+  orderNumber: string;
+  smsCodeOrderId: string;
+  status: string;
+  phoneNumber: string | null;
+  amount: string;
+  currency: string;
+  createdAt: string;
+  product: { id: string; title: string; icon: string; currency: string } | null;
+  otpCodes: OtpCode[];
+  transactions: Transaction[];
+  metadata: { expiresAt?: string | null };
+};
 
 function statusLabel(status: string) {
   switch (status) {
@@ -55,8 +56,8 @@ export default function OrdersPage() {
       setOrders(next);
       const current = next.find((item) => item.status === "IN_PROCESS" || item.status === "VERIFY");
       if (current) {
-        const sms = await api<SmsOrderCardData>(`smscode/orders/${current.id}`);
-        setActive(sms);
+        const sms = await api<SmsOrderCardData>(`smscode/orders/${current.smsCodeOrderId}`);
+        setActive({ ...sms, orderNumber: current.orderNumber });
       } else {
         setActive(null);
       }
@@ -84,7 +85,7 @@ export default function OrdersPage() {
       {active ? (
         <section className="mb-5 rounded-[26px] border border-cyan-300/10 bg-cyan-300/[.025] p-3">
           <div className="mb-2 flex items-center gap-2 px-1"><Phone size={15} className="text-cyan-200" /><span className="text-xs font-bold text-white/60">شماره فعال</span></div>
-          <SmsOrderCard order={active} onChange={setActive} onRemove={() => { setActive(null); void load(); }} />
+          <SmsOrderCard order={active} onChange={(next) => setActive({ ...next, orderNumber: active.orderNumber })} onRemove={() => { setActive(null); void load(); }} />
         </section>
       ) : null}
 
@@ -113,8 +114,8 @@ export default function OrdersPage() {
                   <div className="border-t border-white/8 px-4 pb-4 pt-3">
                     {isActive ? (
                       <SmsOrderCard
-                        order={active && active.id === order.id ? active : {
-                          id: order.id,
+                        order={active && active.id === order.smsCodeOrderId ? active : {
+                          id: order.smsCodeOrderId,
                           orderNumber: order.orderNumber,
                           status: order.status,
                           phoneNumber: order.phoneNumber,
@@ -123,7 +124,7 @@ export default function OrdersPage() {
                           canCancel: false,
                           canReplace: false,
                         }}
-                        onChange={(next) => { setActive(next); void load(); }}
+                        onChange={(next) => { setActive({ ...next, orderNumber: order.orderNumber }); void load(); }}
                         onRemove={() => { setActive(null); void load(); }}
                       />
                     ) : (
