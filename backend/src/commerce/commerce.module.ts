@@ -6,8 +6,11 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { Wallet } from '../wallets/entities/wallet.entity';
 import { User } from '../users/entities/user.entity';
 import { ActivationGuide, ActivationProgress, ActivationStep, Order, OrderInput, PaymentMethod, PaymentRequest, Product, Service, ServiceSmsConfig, SmsCodeOrder, SmsCodeWebhookEvent, WalletTransaction } from './entities/commerce.entity';
+import { NumberOrder } from './entities/number-order.entity';
 import { CommerceService } from './commerce.service';
 import { CommerceController } from './commerce.controller';
+import { NumberOrdersController } from './number-orders.controller';
+import { NumberOrdersService } from './number-orders.service';
 import { SmsCodeService } from './smscode.service';
 
 @Module({
@@ -31,10 +34,11 @@ import { SmsCodeService } from './smscode.service';
       PaymentMethod,
       PaymentRequest,
       WalletTransaction,
+      NumberOrder,
     ]),
   ],
-  controllers: [CommerceController],
-  providers: [CommerceService, SmsCodeService],
-  exports: [CommerceService, SmsCodeService],
+  controllers: [CommerceController, NumberOrdersController],
+  providers: [CommerceService, SmsCodeService, NumberOrdersService],
+  exports: [CommerceService, SmsCodeService, NumberOrdersService],
 })
 export class CommerceModule {}
