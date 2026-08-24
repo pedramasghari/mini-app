@@ -12,6 +12,7 @@ import { CommerceController } from './commerce.controller';
 import { NumberOrdersController } from './number-orders.controller';
 import { NumberOrdersService } from './number-orders.service';
 import { SmsCodeService } from './smscode.service';
+import { WalletTransactionsController } from './wallet-transactions.controller';
 
 @Module({
   imports: [
@@ -37,7 +38,7 @@ import { SmsCodeService } from './smscode.service';
       NumberOrder,
     ]),
   ],
-  controllers: [CommerceController, NumberOrdersController],
+  controllers: [CommerceController, NumberOrdersController, WalletTransactionsController],
   providers: [CommerceService, SmsCodeService, NumberOrdersService],
   exports: [CommerceService, SmsCodeService, NumberOrdersService],
 })
