@@ -1,11 +1,11 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, ServiceUnavailableException, UseGuards } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AdminGuard } from './admin.guard';
 import { User } from '../users/entities/user.entity';
 import { Wallet } from '../wallets/entities/wallet.entity';
 import { Repository } from 'typeorm';
-import { Order, OrderInput, PaymentRequest, Product, Service, SmsCodeOrder, WalletTransaction } from '../commerce/entities/commerce.entity';
-import { SmsCodeService } from '../commerce/smscode.service';
+import { ActivationProgress, Order, OrderInput, Product, Service, SmsCodeOrder, WalletTransaction } from '../commerce/entities/commerce.entity';
 
 @Controller('admin/finance')
 @UseGuards(AdminGuard)
@@ -19,14 +19,14 @@ export class AdminFinanceController {
     @InjectRepository(Product) private readonly products: Repository<Product>,
     @InjectRepository(Service) private readonly services: Repository<Service>,
     @InjectRepository(SmsCodeOrder) private readonly smsOrders: Repository<SmsCodeOrder>,
-    @InjectRepository(PaymentRequest) private readonly payments: Repository<PaymentRequest>,
-    private readonly smsCode: SmsCodeService,
+    @InjectRepository(ActivationProgress) private readonly progress: Repository<ActivationProgress>,
+    private readonly config: ConfigService,
   ) {}
 
   @Get('overview')
   async overview() {
     const wallet = await this.wallets.createQueryBuilder('w')
-      .select('COALESCE(SUM(w.balance), 0)', 'balance')
+      .select('COALESCE(SUM(w.balance::numeric), 0)', 'balance')
       .addSelect('COUNT(w.id)', 'walletCount')
       .where('w.currency = :currency', { currency: 'IRT' })
       .getRawOne<{ balance: string; walletCount: string }>();
@@ -54,13 +54,7 @@ export class AdminFinanceController {
       .andWhere('o.currency = :currency', { currency: 'IRT' })
       .getRawOne<{ total: string }>();
 
-    let smscode: { balance: string | null; currency: string | null; available: boolean; error?: string };
-    try {
-      const provider = await this.smsCode.getBalance();
-      smscode = { balance: provider.balance, currency: provider.currency, available: true };
-    } catch (error) {
-      smscode = { balance: null, currency: null, available: false, error: error instanceof Error ? error.message : 'SMSCode balance unavailable' };
-    }
+    const smscode = await this.providerBalance();
 
     return {
       smscode,
@@ -76,87 +70,70 @@ export class AdminFinanceController {
     };
   }
 
+  private async providerBalance() {
+    const token = this.config.get<string>('SMSCODE_API_TOKEN', '');
+    const version = this.config.get<string>('SMSCODE_API_VERSION', 'v1');
+    if (!token) return { balance: null, currency: null, available: false, error: 'SMSCode API token is not configured.' };
+    try {
+      const response = await fetch(`https://api.smscode.gg/${version}/balance`, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10_000),
+      });
+      const body = await response.json().catch(() => null) as { success?: boolean; data?: { balance?: string | number; currency?: string }; error?: { message?: string } } | null;
+      if (!response.ok || !body?.success || body.data?.balance === undefined) throw new Error(body?.error?.message ?? `SMSCode returned HTTP ${response.status}`);
+      return { balance: String(body.data.balance), currency: body.data.currency ?? null, available: true };
+    } catch (error) {
+      return { balance: null, currency: null, available: false, error: error instanceof Error ? error.message : 'SMSCode balance unavailable' };
+    }
+  }
+
   @Get('transactions')
-  async listTransactions(
-    @Query('page') pageValue?: string,
-    @Query('limit') limitValue?: string,
-    @Query('telegramId') telegramId?: string,
-    @Query('status') status?: string,
-  ) {
+  async listTransactions(@Query('page') pageValue?: string, @Query('limit') limitValue?: string, @Query('telegramId') telegramId?: string, @Query('status') status?: string) {
     const page = Math.max(1, Number(pageValue ?? 1) || 1);
     const limit = Math.min(50, Math.max(10, Number(limitValue ?? 10) || 10));
     const qb = this.transactions.createQueryBuilder('t')
       .leftJoin(User, 'u', 'u.id = t.userId')
-      .addSelect(['u.id', 'u.telegramId', 'u.username', 'u.firstName', 'u.lastName'])
       .orderBy('t.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
-
     if (telegramId?.trim()) qb.andWhere('CAST(u.telegramId AS TEXT) LIKE :telegramId', { telegramId: `%${telegramId.trim()}%` });
     if (status?.trim()) qb.andWhere('LOWER(t.type) = LOWER(:status)', { status: status.trim() });
-
     const [items, total] = await qb.getManyAndCount();
     const userIds = [...new Set(items.map((item) => item.userId))];
-    const users = userIds.length ? await this.users.findBy({ id: userIds as never }) : [];
+    const users = userIds.length ? await this.users.find({ where: userIds.map((id) => ({ id })) }) : [];
     const usersById = new Map(users.map((user) => [user.id, user]));
-
     return {
       items: items.map((item) => {
         const user = usersById.get(item.userId);
-        return {
-          ...item,
-          user: user ? { id: user.id, telegramId: user.telegramId, username: user.username, firstName: user.firstName, lastName: user.lastName, photoUrl: user.photoUrl } : null,
-          canTrack: Boolean(item.referenceId),
-        };
+        return { ...item, user: user ? { id: user.id, telegramId: user.telegramId, username: user.username, firstName: user.firstName, lastName: user.lastName, photoUrl: user.photoUrl } : null, canTrack: Boolean(item.referenceId) };
       }),
-      page,
-      limit,
-      total,
-      pages: Math.ceil(total / limit),
+      page, limit, total, pages: Math.ceil(total / limit),
     };
   }
 
   @Get('transactions/statuses')
   async statuses() {
-    const rows = await this.transactions.createQueryBuilder('t')
-      .select('t.type', 'type')
-      .addSelect('COUNT(*)', 'count')
-      .groupBy('t.type')
-      .orderBy('count', 'DESC')
-      .getRawMany<{ type: string; count: string }>();
+    const rows = await this.transactions.createQueryBuilder('t').select('t.type', 'type').addSelect('COUNT(*)', 'count').groupBy('t.type').orderBy('count', 'DESC').getRawMany<{ type: string; count: string }>();
     return rows.map((row) => ({ type: row.type, count: Number(row.count) }));
   }
 
   @Get('orders/:id')
   async orderDetail(@Param('id') id: string, @Query('kind') kind?: string) {
-    if (kind === 'SMSCODE') {
-      return this.smsOrderDetail(id);
-    }
-
+    if (kind === 'SMSCODE') return this.smsOrderDetail(id);
     const order = await this.orders.findOne({ where: { id } });
     if (!order) {
       const sms = await this.smsOrders.findOne({ where: { id } });
       if (!sms) return { found: false };
       return this.smsOrderDetail(id);
     }
-
     const [product, user, inputs, progress] = await Promise.all([
       this.products.findOne({ where: { id: order.productId } }),
       this.users.findOne({ where: { id: order.userId } }),
       this.inputs.find({ where: { orderId: id }, order: { createdAt: 'ASC' } }),
-      this.services.findOne({ where: { id: order.productId } }),
+      this.progress.findOne({ where: { orderId: id } }),
     ]);
     const service = product ? await this.services.findOne({ where: { id: product.serviceId } }) : null;
-    return {
-      found: true,
-      kind: 'ORDER',
-      order,
-      product,
-      service,
-      user,
-      inputs,
-      progress: progress ?? null,
-    };
+    return { found: true, kind: 'ORDER', order, product, service, user, inputs, progress };
   }
 
   private async smsOrderDetail(id: string) {
