@@ -34,15 +34,24 @@ export class AdminFinanceController {
   }
 
   private async providerBalance() {
-    const token = this.config.get<string>('SMSCODE_API_TOKEN', '');
-    const version = this.config.get<string>('SMSCODE_API_VERSION', 'v1');
-    if (!token) return { balance: null, currency: null, available: false, error: 'SMSCode API token is not configured.' };
-    try {
-      const response = await fetch(`https://api.smscode.gg/${version}/balance`, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10_000) });
-      const body = await response.json().catch(() => null) as { success?: boolean; data?: { balance?: string | number; currency?: string }; error?: { message?: string } } | null;
-      if (!response.ok || !body?.success || body.data?.balance === undefined) throw new Error(body?.error?.message ?? `SMSCode returned HTTP ${response.status}`);
-      return { balance: String(body.data.balance), currency: body.data.currency ?? null, available: true };
-    } catch (error) { return { balance: null, currency: null, available: false, error: error instanceof Error ? error.message : 'SMSCode balance unavailable' }; }
+    const token = this.config.get<string>('SMSCODE_API_TOKEN')?.trim();
+    if (!token) return { balance: null, currency: null, available: false, error: 'SMSCODE_API_TOKEN is not configured.' };
+    const baseUrl = this.config.get<string>('SMSCODE_API_BASE_URL', 'https://api.smscode.gg').replace(/\/$/, '');
+    const version = this.config.get<string>('SMSCODE_API_VERSION', 'v1').replace(/^\//, '');
+    const urls = [...new Set([`${baseUrl}/${version}/balance`, `${baseUrl}/balance`])];
+    let lastError = 'SMSCode balance unavailable';
+    for (const url of urls) {
+      try {
+        const response = await fetch(url, { method: 'GET', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10000) });
+        const text = await response.text();
+        let body: any; try { body = JSON.parse(text); } catch { body = null; }
+        if (!response.ok) { lastError = `SMSCode HTTP ${response.status}: ${body?.error?.message ?? text.slice(0, 160)}`; continue; }
+        const balance = body?.data?.balance ?? body?.balance ?? body?.data?.credits ?? body?.credits ?? body?.data?.availableBalance ?? body?.availableBalance;
+        if (balance === undefined || balance === null) { lastError = `SMSCode balance field not found: ${text.slice(0, 200)}`; continue; }
+        return { balance: String(balance), currency: String(body?.data?.currency ?? body?.currency ?? 'USD'), available: true };
+      } catch (error) { lastError = error instanceof Error ? error.message : 'SMSCode request failed'; }
+    }
+    return { balance: null, currency: null, available: false, error: lastError };
   }
 
   @Get('transactions')
@@ -53,10 +62,10 @@ export class AdminFinanceController {
     if (status?.trim()) {
       switch (status.trim().toUpperCase()) {
         case 'SERVICE_PURCHASE':
-          qb.andWhere("t.type = 'PURCHASE'").andWhere(`NOT EXISTS (SELECT 1 FROM wallet_transactions r WHERE r."referenceType" = t."referenceType" AND r."referenceId" = t."referenceId" AND r.type IN ('REFUND', 'ORDER_REFUND', 'SMSCODE_ORDER_REFUND', 'REFUND_ORDER'))`);
+          qb.andWhere("t.type = 'SMSCODE_ORDER'").andWhere(`NOT EXISTS (SELECT 1 FROM wallet_transactions r WHERE r."referenceType" = t."referenceType" AND r."referenceId" = t."referenceId" AND r.type = 'SMSCODE_ORDER_REFUND')`);
           break;
         case 'SERVICE_REFUND':
-          qb.andWhere("t.type IN ('REFUND', 'ORDER_REFUND', 'SMSCODE_ORDER_REFUND', 'REFUND_ORDER')");
+          qb.andWhere("t.type = 'SMSCODE_ORDER_REFUND'");
           break;
         case 'DEPOSIT':
           qb.andWhere("t.type = 'DEPOSIT'");
@@ -74,7 +83,15 @@ export class AdminFinanceController {
   }
 
   @Get('transactions/statuses')
-  async statuses() { return [{ type: 'SERVICE_PURCHASE', count: 0 }, { type: 'SERVICE_REFUND', count: 0 }, { type: 'DEPOSIT', count: 0 }, { type: 'WITHDRAW', count: 0 }]; }
+  async statuses() {
+    const [purchaseTotal, refundTotal, depositTotal, withdrawTotal] = await Promise.all([
+      this.transactions.createQueryBuilder('t').where("t.type = 'SMSCODE_ORDER'").andWhere(`NOT EXISTS (SELECT 1 FROM wallet_transactions r WHERE r."referenceType" = t."referenceType" AND r."referenceId" = t."referenceId" AND r.type = 'SMSCODE_ORDER_REFUND')`).getCount(),
+      this.transactions.createQueryBuilder('t').where("t.type = 'SMSCODE_ORDER_REFUND'").getCount(),
+      this.transactions.createQueryBuilder('t').where("t.type = 'DEPOSIT'").getCount(),
+      this.transactions.createQueryBuilder('t').where("LOWER(t.type) LIKE '%withdraw%'").getCount(),
+    ]);
+    return [{ type: 'SERVICE_PURCHASE', count: purchaseTotal }, { type: 'SERVICE_REFUND', count: refundTotal }, { type: 'DEPOSIT', count: depositTotal }, { type: 'WITHDRAW', count: withdrawTotal }];
+  }
 
   @Get('orders/:id')
   async orderDetail(@Param('id') id: string, @Query('kind') kind?: string) {
