@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { usePanel } from "@/context/PanelContext";
@@ -10,16 +11,20 @@ import { useAppStore } from "@/context/useApp";
 import { Headphones, ShoppingBag } from "lucide-react";
 
 export default function Header() {
+  const pathname = usePathname();
   const { activeTab, setActiveTab } = useAppStore();
+  const { me, realtime } = usePanel();
+  const [activeMenu, setActiveMenu] = useState<"wallet" | "notifications" | "profile" | null>(null);
+
+  // Admin has its own completely independent shell/header.
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) return null;
+  if (!me) return null;
+
   const go = (path: string) => { window.location.href = path; };
   const onDeposit = () => { setActiveTab("deposit"); go("/panel"); };
   const onWithdraw = () => { setActiveTab("withdraw"); go("/panel"); };
   const onTransactions = () => { go("/panel/wallet/transactions"); };
   const onLogout = () => go("/logout");
-  const { me, realtime } = usePanel();
-  const [activeMenu, setActiveMenu] = useState<"wallet" | "notifications" | "profile" | null>(null);
-
-  if (!me) return null;
   const { user, wallet } = me;
   const setMenu = (menu: typeof activeMenu) => setActiveMenu((current) => (current === menu ? null : menu));
 
@@ -31,7 +36,6 @@ export default function Header() {
       </Link>
 
       <div className="flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-2">
-        
         <WalletCenter balance={wallet?.balance} open={activeMenu === "wallet"} onOpenChange={(open) => setMenu(open ? "wallet" : null)} onDeposit={onDeposit} onWithdraw={onWithdraw} onTransactions={onTransactions} />
         <NotificationCenter open={activeMenu === "notifications"} onOpenChange={(open) => setMenu(open ? "notifications" : null)} />
         <ProfileCenter user={user} realtime={realtime} open={activeMenu === "profile"} onOpenChange={(open) => setMenu(open ? "profile" : null)} onLogout={onLogout} />
