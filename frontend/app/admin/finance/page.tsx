@@ -1,4 +1,5 @@
-export default function AdminFinancePage() {
-  return null;
-}
+import { AdminFinance } from '../../../components/admin/AdminFinance';
 
+export default function AdminFinancePage() {
+  return <AdminFinance />;
+}
