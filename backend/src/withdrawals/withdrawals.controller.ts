@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Req, Query } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthService } from '../auth/auth.service';
 import { WithdrawalsService } from './withdrawals.service';
@@ -15,6 +15,12 @@ export class WithdrawalsController {
     return session.user.id;
   }
 
+  /** Combined wallet requests: deposits + withdrawals. */
+  @Get('../requests')
+  async walletRequests(@Req() req: Request, @Query('page') page?: string, @Query('limit') limit?: string, @Query('type') type?: string, @Query('status') status?: string) {
+    return this.withdrawals.listWalletRequests(await this.userId(req), Number(page ?? 1), Number(limit ?? 10), type ?? 'ALL', status);
+  }
+
   @Get()
   async list(@Req() req: Request, @Query('page') page?: string, @Query('limit') limit?: string) {
     return this.withdrawals.listMine(await this.userId(req), Number(page ?? 1), Number(limit ?? 10));
@@ -23,11 +29,7 @@ export class WithdrawalsController {
   @Post()
   async create(@Req() req: Request, @Body() body: { cardNumber?: string; cardHolderName?: string; amount?: string }) {
     if (!body.cardNumber || !body.cardHolderName || !body.amount) throw new BadRequestException('شماره کارت، نام صاحب کارت و مبلغ الزامی است.');
-    return this.withdrawals.create(await this.userId(req), {
-      cardNumber: body.cardNumber,
-      cardHolderName: body.cardHolderName,
-      amount: body.amount,
-    });
+    return this.withdrawals.create(await this.userId(req), { cardNumber: body.cardNumber, cardHolderName: body.cardHolderName, amount: body.amount });
   }
 
   @Post(':id/cancel')
