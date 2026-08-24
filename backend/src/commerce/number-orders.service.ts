@@ -80,7 +80,17 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async getOtpHistory(row: SmsCodeOrder, snapshot: SmsSnapshot) {
-    const events = await this.webhookEvents.find({ where: { smsCodeOrderId: row.id }, order: { createdAt: 'ASC' } });
+    const providerOrderId = row.providerOrderId ?? snapshot.providerOrderId;
+    if (!providerOrderId) {
+      return snapshot.otpCode
+        ? [{ code: snapshot.otpCode, message: snapshot.otpMessage ?? null, revision: 1, receivedAt: new Date().toISOString() }]
+        : [];
+    }
+
+    const events = await this.webhookEvents.find({
+      where: { providerOrderId: String(providerOrderId) },
+      order: { createdAt: 'ASC' },
+    });
     const result: NumberOrderOtp[] = [];
     const seen = new Set<string>();
     for (const event of events) {
@@ -89,10 +99,20 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
       const code = String(data.code ?? data.otp ?? data.verification_code ?? '').trim();
       if (!code || seen.has(code)) continue;
       seen.add(code);
-      result.push({ code, message: typeof data.message === 'string' ? data.message : null, revision: result.length + 1, receivedAt: event.createdAt as unknown as string });
+      result.push({
+        code,
+        message: typeof data.message === 'string' ? data.message : null,
+        revision: result.length + 1,
+        receivedAt: event.createdAt as unknown as string,
+      });
     }
     if (snapshot.otpCode && !seen.has(snapshot.otpCode)) {
-      result.push({ code: snapshot.otpCode, message: snapshot.otpMessage ?? null, revision: result.length + 1, receivedAt: new Date().toISOString() });
+      result.push({
+        code: snapshot.otpCode,
+        message: snapshot.otpMessage ?? null,
+        revision: result.length + 1,
+        receivedAt: new Date().toISOString(),
+      });
     }
     return result;
   }
@@ -155,7 +175,6 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
     return this.createOrUpdate(row, (await this.smsCode.get(userId, smsOrderId)) as SmsSnapshot);
   }
 
-  /** Resolve the provider order by the actual phone number owned by this user. */
   async ensureForPhone(userId: string, phoneNumber: string) {
     const normalized = phoneNumber.trim();
     if (!normalized) throw new NotFoundException('شماره تلفن نامعتبر است.');
@@ -192,11 +211,17 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
       });
       for (const transaction of transactions) {
         if (transaction.referenceType !== 'NUMBER_ORDER' || transaction.referenceId !== order.id) {
-          transaction.referenceType = 'NUMBER_ORDER'; transaction.referenceId = order.id;
+          transaction.referenceType = 'NUMBER_ORDER';
+          transaction.referenceId = order.id;
           await this.transactions.save(transaction);
         }
       }
-      result.push({ ...order, product: product ? { id: product.id, title: product.title, icon: product.icon, currency: product.currency } : null, otpCodes: order.metadata?.otpCodes ?? [], transactions });
+      result.push({
+        ...order,
+        product: product ? { id: product.id, title: product.title, icon: product.icon, currency: product.currency } : null,
+        otpCodes: order.metadata?.otpCodes ?? [],
+        transactions,
+      });
     }
     return result;
   }
