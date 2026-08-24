@@ -57,6 +57,12 @@ const links = [
     icon: BarChart3,
   },
   {
+    href: "/admin/withdrawals",
+    label: "درخواست‌های برداشت",
+    description: "بررسی درخواست‌های برداشت",
+    icon: BarChart3,
+  },  
+  {
     href: "/admin/support",
     label: "پشتیبانی",
     description: "گفتگوهای کاربران",
