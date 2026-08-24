@@ -27,16 +27,16 @@ export class ServiceSmsConfig {
   @Column({ default: false }) enabled!: boolean;
   @Column({ type: 'int', nullable: true }) countryId!: number | null;
   @Column({ type: 'varchar', length: 8, nullable: true }) countryCode!: string | null;
-  @Column({ type: 'varchar',length: 120, nullable: true }) countryName!: string | null;
+  @Column({ type: 'varchar', length: 120, nullable: true }) countryName!: string | null;
   @Column({ type: 'int', nullable: true }) platformId!: number | null;
-  @Column({ type: 'varchar',length: 80, nullable: true }) platformCode!: string | null;
-  @Column({ type: 'varchar',length: 120, nullable: true }) platformName!: string | null;
+  @Column({ type: 'varchar', length: 80, nullable: true }) platformCode!: string | null;
+  @Column({ type: 'varchar', length: 120, nullable: true }) platformName!: string | null;
   @Column({ type: 'int', nullable: true }) catalogProductId!: number | null;
   @Column({ type: 'int', nullable: true }) operatorId!: number | null;
   @Column({ type: 'decimal', precision: 20, scale: 8, nullable: true }) minProviderPrice!: string | null;
   @Column({ type: 'decimal', precision: 20, scale: 8, nullable: true }) maxProviderPrice!: string | null;
   @Column({ length: 30, default: 'cheapest' }) policy!: 'cheapest' | 'best_success';
-  @Column({ type: 'varchar',length: 80, nullable: true }) preferredProvider!: string | null;
+  @Column({ type: 'varchar', length: 80, nullable: true }) preferredProvider!: string | null;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }
@@ -99,6 +99,7 @@ export class Order {
 @Index('uq_smscode_idempotency_key', ['idempotencyKey'], { unique: true })
 @Index('uq_active_sms_order_per_user', ['userId'], { unique: true, where: '\"status\" IN (\'CREATING\', \'PROVIDER_PENDING\', \'ACTIVE\', \'OTP_RECEIVED\')' })
 @Index('idx_smscode_user', ['userId'])
+@Index('idx_smscode_user_phone', ['userId', 'phoneNumber'])
 export class SmsCodeOrder {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column('uuid') userId!: string;
@@ -121,7 +122,7 @@ export class SmsCodeOrder {
   @Column({ type: 'int', default: 0 }) smsRevision!: number;
   @Column({ type: 'timestamptz', nullable: true }) refundedAt!: Date | null;
   @Column({ type: 'decimal', precision: 30, scale: 8, nullable: true }) refundedAmount!: string | null;
-  @Column({ type: 'varchar',length: 80, nullable: true }) refundReason!: string | null;
+  @Column({ type: 'varchar', length: 80, nullable: true }) refundReason!: string | null;
   @Column({ type: 'jsonb', default: {} }) providerSnapshot!: Record<string, unknown>;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
@@ -178,30 +179,12 @@ export class PaymentMethod {
 @Index('uq_one_pending_deposit_per_user', ['userId'], { unique: true, where: '\"status\" = \'PENDING\'' })
 export class PaymentRequest {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Index() @Column('uuid') userId!: string;
-  @Column('uuid', { nullable: true }) orderId!: string | null;
-  @Column('uuid') paymentMethodId!: string;
+  @Column('uuid') userId!: string;
   @Column({ type: 'decimal', precision: 30, scale: 8 }) amount!: string;
-  @Column({ length: 10, default: 'IRT' }) currency!: string;
+  @Column({ length: 10 }) currency!: string;
   @Column({ length: 30, default: 'PENDING' }) status!: string;
-  @Column({ type: 'text', nullable: true }) receiptPath!: string | null;
-  @Column({ type: 'text', nullable: true }) adminReason!: string | null;
+  @Column({ type: 'varchar', length: 1000, nullable: true }) proofUrl!: string | null;
+  @Column({ type: 'text', nullable: true }) adminNote!: string | null;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
-}
-
-@Entity('wallet_transactions')
-export class WalletTransaction {
-  @PrimaryGeneratedColumn('uuid') id!: string;
-  @Index() @Column('uuid') userId!: string;
-  @Index() @Column('uuid') walletId!: string;
-  @Column({ length: 40 }) type!: string;
-  @Column({ type: 'decimal', precision: 30, scale: 8 }) amount!: string;
-  @Column({ type: 'decimal', precision: 30, scale: 8 }) balanceBefore!: string;
-  @Column({ type: 'decimal', precision: 30, scale: 8 }) balanceAfter!: string;
-  @Column({ length: 10, default: 'IRT' }) currency!: string;
-  @Column({ type: 'varchar', length: 120, nullable: true }) referenceType!: string | null;
-  @Column({ type: 'varchar', length: 120, nullable: true }) referenceId!: string | null;
-  @Column({ type: 'text', nullable: true }) description!: string | null;
-  @CreateDateColumn() createdAt!: Date;
 }
