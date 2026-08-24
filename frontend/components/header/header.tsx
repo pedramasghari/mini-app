@@ -13,9 +13,9 @@ export default function Header() {
   const go = (path: string) => {
     window.location.href = path;
   };
-  const onDeposit = () => setActiveTab("deposit");
-  const onWithdraw = () => setActiveTab("withdraw");
-  const onTransactions = () => setActiveTab("transactions");
+  const onDeposit = () => {setActiveTab("deposit"); go("/panel");}
+  const onWithdraw = () => {setActiveTab("withdraw"); go("/panel");}
+  const onTransactions = () => {setActiveTab("transactions"); go("/panel");}
   const onLogout = () => go("/logout");
   const { me, realtime } = usePanel();
   const [activeMenu, setActiveMenu] = useState<
@@ -33,7 +33,7 @@ export default function Header() {
       dir="rtl"
       className="sticky  top-0 z-50 -mx-3 mb-4 flex min-w-0 items-center justify-between gap-2 border-b border-white/5 bg-[#070b14]/90 px-3 py-3 backdrop-blur-xl sm:-mx-5 sm:px-5"
     >
-      <button className="min-w-0 cursor-pointer border border-1 border-[#333] hover:bg-white/10 p-2 rounded-xl flex gap-2 justify-content items-center" onClick={() => setActiveTab("home")}>
+      <button className="min-w-0 cursor-pointer border border-1 border-[#333] hover:bg-white/10 p-2 rounded-xl flex gap-2 justify-content items-center" onClick={() => {setActiveTab("home"); go("/panel");}}>
         <ShoppingBag size={20} className="text-white" />
         <p className="truncate text-lg font-bold text-white">
           فروشگاه
