@@ -56,12 +56,7 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
 
   private async getOtpHistory(row: SmsCodeOrder, snapshot?: SmsSnapshot): Promise<NumberOrderOtp[]> {
     if (!row.providerOrderId) return [];
-
-    const events = await this.webhookEvents.find({
-      where: { providerOrderId: String(row.providerOrderId) },
-      order: { createdAt: 'ASC' },
-    });
-
+    const events = await this.webhookEvents.find({ where: { providerOrderId: String(row.providerOrderId) }, order: { createdAt: 'ASC' } });
     const result: NumberOrderOtp[] = [];
     const seen = new Set<string>();
     const add = (code: unknown, message: unknown, revision: unknown, receivedAt: Date | string) => {
@@ -74,7 +69,6 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
       seen.add(key);
       result.push({ code: normalizedCode, message: normalizedMessage, revision: Number.isFinite(rev) ? rev : 0, receivedAt: new Date(receivedAt).toISOString() });
     };
-
     for (const event of events) {
       const payload = event.payload as { data?: { otp_code?: unknown; otp_message?: unknown; sms_revision?: unknown } } | null;
       if (event.event === 'order.otp_received' || payload?.data?.otp_code || payload?.data?.otp_message) add(payload?.data?.otp_code, payload?.data?.otp_message, payload?.data?.sms_revision, event.createdAt);
@@ -82,28 +76,30 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
     if (snapshot?.otpCode || snapshot?.otpMessage) add(snapshot.otpCode, snapshot.otpMessage, snapshot.smsRevision, new Date());
     const providerWebhook = row.providerSnapshot?.webhook as { otp_code?: unknown; otp_message?: unknown; sms_revision?: unknown } | undefined;
     if (providerWebhook?.otp_code || providerWebhook?.otp_message) add(providerWebhook.otp_code, providerWebhook.otp_message, providerWebhook.sms_revision, new Date());
-
     return result.sort((a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime());
   }
 
   private deriveStatus(row: SmsCodeOrder, snapshot: SmsSnapshot, otpCodes: NumberOrderOtp[]): NumberOrderStatus {
     const providerStatus = String(snapshot.status ?? row.status).toUpperCase();
     if (providerStatus === 'CANCELED' || providerStatus === 'CANCELLED') return 'CANCEL';
-    if (providerStatus === 'EXPIRED') return 'EXPIRED';
     const hasCode = otpCodes.length > 0;
     const expired = Boolean(snapshot.expiresAt && new Date(snapshot.expiresAt).getTime() <= Date.now());
     if (hasCode && (providerStatus === 'COMPLETED' || expired)) return 'SUCCESS';
+    if (providerStatus === 'EXPIRED') return 'EXPIRED';
     if (hasCode || providerStatus === 'OTP_RECEIVED') return 'VERIFY';
     return 'IN_PROCESS';
   }
 
-  private async createOrUpdate(row: SmsCodeOrder, snapshot: SmsSnapshot): Promise<NumberOrder> {
+  private async createOrUpdate(row: SmsCodeOrder, snapshot: SmsSnapshot): Promise<NumberOrder | null> {
     const product = await this.products.findOne({ where: { id: row.productId ?? '' } });
     if (!product || !row.serviceId || !row.productId) throw new NotFoundException('محصول سفارش شماره پیدا نشد.');
 
+    let order = await this.numberOrders.findOne({ where: { smsCodeOrderId: row.id } });
+    // سفارش کاربر فقط وقتی ساخته می‌شود که Provider واقعاً شماره را تخصیص داده باشد.
+    if (!order && (!row.providerOrderId || !snapshot.phoneNumber)) return null;
+
     const otpCodes = await this.getOtpHistory(row, snapshot);
     const status = this.deriveStatus(row, snapshot, otpCodes);
-    let order = await this.numberOrders.findOne({ where: { smsCodeOrderId: row.id } });
 
     if (!order) {
       order = this.numberOrders.create({
@@ -131,7 +127,6 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
       lastOtpMessage: snapshot.otpMessage ?? otpCodes.at(-1)?.message ?? null,
       smsRevision: snapshot.smsRevision ?? row.smsRevision,
     };
-
     return this.numberOrders.save(order);
   }
 
@@ -145,11 +140,7 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async syncOpenOrders() {
-    const rows = await this.smsOrders.find({
-      where: { status: In(['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED', 'COMPLETED']) },
-      order: { createdAt: 'ASC' },
-      take: 50,
-    });
+    const rows = await this.smsOrders.find({ where: { status: In(['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED', 'COMPLETED']) }, order: { createdAt: 'ASC' }, take: 50 });
     for (const row of rows) await this.syncRow(row);
   }
 
@@ -192,7 +183,7 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
       if (!smsRow) continue;
       const sms = await this.smsCode.get(userId, order.smsCodeOrderId) as SmsSnapshot;
       const current = await this.createOrUpdate(smsRow, sms);
-      if (!['IN_PROCESS', 'VERIFY'].includes(current.status)) continue;
+      if (!current || !['IN_PROCESS', 'VERIFY'].includes(current.status)) continue;
       result.push({
         id: smsRow.id,
         orderNumber: current.orderNumber,
