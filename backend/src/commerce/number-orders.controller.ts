@@ -16,12 +16,9 @@ export class NumberOrdersController {
     private readonly auth: AuthService,
     private readonly orders: NumberOrdersService,
     private readonly smsCode: SmsCodeService,
-    @InjectRepository(NumberOrder)
-    private readonly numberOrders: Repository<NumberOrder>,
-    @InjectRepository(Product)
-    private readonly products: Repository<Product>,
-    @InjectRepository(WalletTransaction)
-    private readonly transactions: Repository<WalletTransaction>,
+    @InjectRepository(NumberOrder) private readonly numberOrders: Repository<NumberOrder>,
+    @InjectRepository(Product) private readonly products: Repository<Product>,
+    @InjectRepository(WalletTransaction) private readonly transactions: Repository<WalletTransaction>,
   ) {}
 
   private async userId(req: Request) {
@@ -33,12 +30,7 @@ export class NumberOrdersController {
   @Get('me')
   async mine(@Req() req: Request) {
     const userId = await this.userId(req);
-    const orders = await this.numberOrders.find({
-      where: { userId },
-      order: { createdAt: 'DESC' },
-      take: 100,
-    });
-
+    const orders = await this.numberOrders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 100 });
     const result = [] as Array<NumberOrder & {
       product: { id: string; title: string; icon: string; currency: string } | null;
       otpCodes: NonNullable<NumberOrder['metadata']>['otpCodes'];
@@ -48,13 +40,13 @@ export class NumberOrdersController {
     for (const order of orders) {
       const product = await this.products.findOne({ where: { id: order.productId } });
       const legacy = await this.transactions.find({
-        where: { userId, referenceType: 'SMSCODE_ORDER', referenceId: order.smsCodeOrderId },
+        where: [
+          { userId, referenceType: 'SMSCODE_ORDER', referenceId: order.smsCodeOrderId },
+          { userId, referenceType: 'SMSCODE_ORDER_REFUND', referenceId: order.smsCodeOrderId },
+        ],
         order: { createdAt: 'DESC' },
       });
-      const current = await this.transactions.find({
-        where: { userId, referenceType: 'NUMBER_ORDER', referenceId: order.id },
-        order: { createdAt: 'DESC' },
-      });
+      const current = await this.transactions.find({ where: { userId, referenceType: 'NUMBER_ORDER', referenceId: order.id }, order: { createdAt: 'DESC' } });
 
       for (const transaction of legacy) {
         transaction.referenceType = 'NUMBER_ORDER';
@@ -62,20 +54,17 @@ export class NumberOrdersController {
         await this.transactions.save(transaction);
       }
 
-      const transactions = [...current, ...legacy].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
+      const transactions = [...current, ...legacy]
+        .filter((transaction, index, all) => all.findIndex(item => item.id === transaction.id) === index)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       result.push({
         ...order,
-        product: product
-          ? { id: product.id, title: product.title, icon: product.icon, currency: product.currency }
-          : null,
+        product: product ? { id: product.id, title: product.title, icon: product.icon, currency: product.currency } : null,
         otpCodes: order.metadata?.otpCodes ?? [],
         transactions,
       });
     }
-
     return result;
   }
 
@@ -89,33 +78,32 @@ export class NumberOrdersController {
   async cancelBySms(@Req() req: Request, @Param('smsOrderId') smsOrderId: string) {
     const userId = await this.userId(req);
 
-    // The card can become visible immediately after the provider allocates a
-    // number, while the background sync has not created NumberOrder yet.
-    // Materialize it first so all cancellation entry points share one path.
+    // Materialize NumberOrder BEFORE SmsCodeService creates the refund.
+    // This lets refundIfNeeded attach the refund directly to NumberOrder.
     const numberOrder = await this.orders.ensureForSmsOrder(userId, smsOrderId);
-    if (!numberOrder) {
-      throw new NotFoundException('سفارش شماره پیدا نشد.');
-    }
+    if (!numberOrder) throw new NotFoundException('سفارش شماره پیدا نشد.');
 
     const cancelled = await this.smsCode.cancel(userId, smsOrderId);
 
-    // smsCode.cancel creates the refund against the SMSCODE_ORDER reference.
-    // Move every transaction (purchase + refund) to the durable NumberOrder.
+    // Include both old purchase/refund references and the canonical NumberOrder reference.
     const linked = await this.transactions.find({
-      where: { userId, referenceType: 'SMSCODE_ORDER', referenceId: smsOrderId },
+      where: [
+        { userId, referenceType: 'SMSCODE_ORDER', referenceId: smsOrderId },
+        { userId, referenceType: 'SMSCODE_ORDER_REFUND', referenceId: smsOrderId },
+        { userId, referenceType: 'NUMBER_ORDER', referenceId: numberOrder.id },
+      ],
       order: { createdAt: 'ASC' },
     });
 
     for (const transaction of linked) {
-      transaction.referenceType = 'NUMBER_ORDER';
-      transaction.referenceId = numberOrder.id;
-      await this.transactions.save(transaction);
+      if (transaction.referenceType !== 'NUMBER_ORDER' || transaction.referenceId !== numberOrder.id) {
+        transaction.referenceType = 'NUMBER_ORDER';
+        transaction.referenceId = numberOrder.id;
+        await this.transactions.save(transaction);
+      }
     }
 
-    // Refresh the durable order after cancellation so its persisted status and
-    // metadata reflect the provider response.
     const finalOrder = await this.orders.ensureForSmsOrder(userId, smsOrderId);
-
     return {
       ...cancelled,
       orderNumber: numberOrder.orderNumber,
