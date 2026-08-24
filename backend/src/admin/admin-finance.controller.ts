@@ -25,54 +25,169 @@ export class AdminFinanceController {
 
   @Get('overview')
   async overview() {
-    const wallet = await this.wallets.createQueryBuilder('w').select('COALESCE(SUM(w.balance::numeric), 0)', 'balance').addSelect('COUNT(w.id)', 'walletCount').where('w.currency = :currency', { currency: 'IRT' }).getRawOne<{ balance: string; walletCount: string }>();
-    const received = await this.transactions.createQueryBuilder('t').select('COALESCE(SUM(t.amount::numeric), 0)', 'total').where('t.currency = :currency', { currency: 'IRT' }).andWhere('t.type = :type', { type: 'DEPOSIT' }).getRawOne<{ total: string }>();
-    const withdrawals = await this.transactions.createQueryBuilder('t').select('COALESCE(SUM(ABS(t.amount::numeric)), 0)', 'total').where('t.currency = :currency', { currency: 'IRT' }).andWhere("LOWER(t.type) LIKE '%withdraw%'").getRawOne<{ total: string }>();
-    const serviceRevenue = await this.orders.createQueryBuilder('o').select('COALESCE(SUM(o.amount::numeric), 0)', 'total').where("o.status NOT IN ('CANCELLED', 'REFUNDED', 'FAILED')").andWhere('o.currency = :currency', { currency: 'IRT' }).getRawOne<{ total: string }>();
-    const smsRevenue = await this.smsOrders.createQueryBuilder('o').select('COALESCE(SUM(o.chargedAmount::numeric), 0)', 'total').where("o.refundedAt IS NULL").andWhere("o.status NOT IN ('FAILED', 'REFUNDED')").andWhere('o.currency = :currency', { currency: 'IRT' }).getRawOne<{ total: string }>();
+    const wallet = await this.wallets
+      .createQueryBuilder('w')
+      .select('COALESCE(SUM(w.balance::numeric), 0)', 'balance')
+      .addSelect('COUNT(w.id)', 'walletCount')
+      .where('w.currency = :currency', { currency: 'IRT' })
+      .getRawOne<{ balance: string; walletCount: string }>();
+
+    const received = await this.transactions
+      .createQueryBuilder('t')
+      .select('COALESCE(SUM(t.amount::numeric), 0)', 'total')
+      .where('t.currency = :currency', { currency: 'IRT' })
+      .andWhere('t.type = :type', { type: 'DEPOSIT' })
+      .getRawOne<{ total: string }>();
+
+    const withdrawals = await this.transactions
+      .createQueryBuilder('t')
+      .select('COALESCE(SUM(ABS(t.amount::numeric)), 0)', 'total')
+      .where('t.currency = :currency', { currency: 'IRT' })
+      .andWhere("LOWER(t.type) LIKE '%withdraw%'")
+      .getRawOne<{ total: string }>();
+
+    const serviceRevenue = await this.orders
+      .createQueryBuilder('o')
+      .select('COALESCE(SUM(o.amount::numeric), 0)', 'total')
+      .where("o.status NOT IN ('CANCELLED', 'REFUNDED', 'FAILED')")
+      .andWhere('o.currency = :currency', { currency: 'IRT' })
+      .getRawOne<{ total: string }>();
+
+    // IMPORTANT: TypeORM preserves camelCase column names in PostgreSQL by creating
+    // quoted identifiers. Raw SQL must therefore quote chargedAmount/refundedAt.
+    const smsRevenue = await this.smsOrders
+      .createQueryBuilder('o')
+      .select('COALESCE(SUM(o."chargedAmount"::numeric), 0)', 'total')
+      .where('o."refundedAt" IS NULL')
+      .andWhere("o.status NOT IN ('FAILED', 'REFUNDED')")
+      .andWhere('o.currency = :currency', { currency: 'IRT' })
+      .getRawOne<{ total: string }>();
+
     return {
-      smscode: await this.providerBalance(), usersBalance: wallet?.balance ?? '0', walletCount: Number(wallet?.walletCount ?? 0), totalReceived: received?.total ?? '0', totalWithdrawals: withdrawals?.total ?? '0',
-      serviceRevenue: { standardOrders: serviceRevenue?.total ?? '0', smsCodeOrders: smsRevenue?.total ?? '0', total: (Number(serviceRevenue?.total ?? 0) + Number(smsRevenue?.total ?? 0)).toFixed(8) },
+      smscode: await this.providerBalance(),
+      usersBalance: wallet?.balance ?? '0',
+      walletCount: Number(wallet?.walletCount ?? 0),
+      totalReceived: received?.total ?? '0',
+      totalWithdrawals: withdrawals?.total ?? '0',
+      serviceRevenue: {
+        standardOrders: serviceRevenue?.total ?? '0',
+        smsCodeOrders: smsRevenue?.total ?? '0',
+        total: (Number(serviceRevenue?.total ?? 0) + Number(smsRevenue?.total ?? 0)).toFixed(8),
+      },
     };
   }
 
   private async providerBalance() {
-    const token = this.config.get<string>('SMSCODE_API_TOKEN', ''); const version = this.config.get<string>('SMSCODE_API_VERSION', 'v1');
+    const token = this.config.get<string>('SMSCODE_API_TOKEN', '');
+    const version = this.config.get<string>('SMSCODE_API_VERSION', 'v1');
     if (!token) return { balance: null, currency: null, available: false, error: 'SMSCode API token is not configured.' };
+
     try {
-      const response = await fetch(`https://api.smscode.gg/${version}/balance`, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10_000) });
-      const body = await response.json().catch(() => null) as { success?: boolean; data?: { balance?: string | number; currency?: string }; error?: { message?: string } } | null;
-      if (!response.ok || !body?.success || body.data?.balance === undefined) throw new Error(body?.error?.message ?? `SMSCode returned HTTP ${response.status}`);
+      const response = await fetch(`https://api.smscode.gg/${version}/balance`, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10_000),
+      });
+      const body = await response.json().catch(() => null) as {
+        success?: boolean;
+        data?: { balance?: string | number; currency?: string };
+        error?: { message?: string };
+      } | null;
+      if (!response.ok || !body?.success || body.data?.balance === undefined) {
+        throw new Error(body?.error?.message ?? `SMSCode returned HTTP ${response.status}`);
+      }
       return { balance: String(body.data.balance), currency: body.data.currency ?? null, available: true };
-    } catch (error) { return { balance: null, currency: null, available: false, error: error instanceof Error ? error.message : 'SMSCode balance unavailable' }; }
+    } catch (error) {
+      return { balance: null, currency: null, available: false, error: error instanceof Error ? error.message : 'SMSCode balance unavailable' };
+    }
   }
 
   @Get('transactions')
-  async listTransactions(@Query('page') pageValue?: string, @Query('limit') limitValue?: string, @Query('telegramId') telegramId?: string, @Query('status') status?: string) {
-    const page = Math.max(1, Number(pageValue ?? 1) || 1); const limit = Math.min(50, Math.max(10, Number(limitValue ?? 10) || 10));
-    const qb = this.transactions.createQueryBuilder('t').leftJoin(User, 'u', 'u.id = t.userId').orderBy('t.createdAt', 'DESC').skip((page - 1) * limit).take(limit);
-    if (telegramId?.trim()) qb.andWhere('CAST(u.telegramId AS TEXT) LIKE :telegramId', { telegramId: `%${telegramId.trim()}%` });
-    if (status?.trim()) qb.andWhere('LOWER(t.type) = LOWER(:status)', { status: status.trim() });
-    const [items, total] = await qb.getManyAndCount(); const userIds = [...new Set(items.map((item) => item.userId))]; const users = userIds.length ? await this.users.find({ where: userIds.map((id) => ({ id })) }) : []; const usersById = new Map(users.map((user) => [user.id, user]));
-    return { items: items.map((item) => { const user = usersById.get(item.userId); return { ...item, user: user ? { id: user.id, telegramId: user.telegramId, username: user.username, firstName: user.firstName, lastName: user.lastName, photoUrl: user.photoUrl } : null, canTrack: Boolean(item.referenceId) }; }), page, limit, total, pages: Math.ceil(total / limit) };
+  async listTransactions(
+    @Query('page') pageValue?: string,
+    @Query('limit') limitValue?: string,
+    @Query('telegramId') telegramId?: string,
+    @Query('status') status?: string,
+  ) {
+    const page = Math.max(1, Number(pageValue ?? 1) || 1);
+    const limit = Math.min(50, Math.max(10, Number(limitValue ?? 10) || 10));
+    const qb = this.transactions
+      .createQueryBuilder('t')
+      .leftJoin(User, 'u', 'u.id = t.userId')
+      .orderBy('t.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (telegramId?.trim()) {
+      qb.andWhere('CAST(u."telegramId" AS TEXT) LIKE :telegramId', { telegramId: `%${telegramId.trim()}%` });
+    }
+    if (status?.trim()) {
+      qb.andWhere('LOWER(t.type) = LOWER(:status)', { status: status.trim() });
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+    const userIds = [...new Set(items.map((item) => item.userId))];
+    const users = userIds.length ? await this.users.find({ where: userIds.map((id) => ({ id })) }) : [];
+    const usersById = new Map(users.map((user) => [user.id, user]));
+
+    return {
+      items: items.map((item) => {
+        const user = usersById.get(item.userId);
+        return {
+          ...item,
+          user: user
+            ? { id: user.id, telegramId: user.telegramId, username: user.username, firstName: user.firstName, lastName: user.lastName, photoUrl: user.photoUrl }
+            : null,
+          canTrack: Boolean(item.referenceId),
+        };
+      }),
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit),
+    };
   }
 
   @Get('transactions/statuses')
-  async statuses() { const rows = await this.transactions.createQueryBuilder('t').select('t.type', 'type').addSelect('COUNT(*)', 'count').groupBy('t.type').orderBy('count', 'DESC').getRawMany<{ type: string; count: string }>(); return rows.map((row) => ({ type: row.type, count: Number(row.count) })); }
+  async statuses() {
+    const rows = await this.transactions
+      .createQueryBuilder('t')
+      .select('t.type', 'type')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('t.type')
+      .orderBy('count', 'DESC')
+      .getRawMany<{ type: string; count: string }>();
+    return rows.map((row) => ({ type: row.type, count: Number(row.count) }));
+  }
 
   @Get('orders/:id')
   async orderDetail(@Param('id') id: string, @Query('kind') kind?: string) {
     if (kind === 'SMSCODE') return this.smsOrderDetail(id);
+
     const order = await this.orders.findOne({ where: { id } });
-    if (!order) { const sms = await this.smsOrders.findOne({ where: { id } }); if (!sms) return { found: false }; return this.smsOrderDetail(id); }
-    const [product, user, inputs, progress] = await Promise.all([this.products.findOne({ where: { id: order.productId } }), this.users.findOne({ where: { id: order.userId } }), this.inputs.find({ where: { orderId: id }, order: { createdAt: 'ASC' } }), this.progress.findOne({ where: { orderId: id } })]);
+    if (!order) {
+      const sms = await this.smsOrders.findOne({ where: { id } });
+      if (!sms) return { found: false };
+      return this.smsOrderDetail(id);
+    }
+
+    const [product, user, inputs, progress] = await Promise.all([
+      this.products.findOne({ where: { id: order.productId } }),
+      this.users.findOne({ where: { id: order.userId } }),
+      this.inputs.find({ where: { orderId: id }, order: { createdAt: 'ASC' } }),
+      this.progress.findOne({ where: { orderId: id } }),
+    ]);
     const service = product ? await this.services.findOne({ where: { id: product.serviceId } }) : null;
     return { found: true, kind: 'ORDER', order, product, service, user, inputs, progress };
   }
 
   private async smsOrderDetail(id: string) {
-    const order = await this.smsOrders.findOne({ where: { id } }); if (!order) return { found: false };
-    const [user, product, service] = await Promise.all([this.users.findOne({ where: { id: order.userId } }), order.productId ? this.products.findOne({ where: { id: order.productId } }) : null, order.serviceId ? this.services.findOne({ where: { id: order.serviceId } }) : null]);
+    const order = await this.smsOrders.findOne({ where: { id } });
+    if (!order) return { found: false };
+    const [user, product, service] = await Promise.all([
+      this.users.findOne({ where: { id: order.userId } }),
+      order.productId ? this.products.findOne({ where: { id: order.productId } }) : null,
+      order.serviceId ? this.services.findOne({ where: { id: order.serviceId } }) : null,
+    ]);
     return { found: true, kind: 'SMSCODE', order, product, service, user };
   }
 }
