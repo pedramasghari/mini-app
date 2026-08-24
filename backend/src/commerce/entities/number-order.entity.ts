@@ -14,6 +14,11 @@ export type NumberOrderOtp = {
 @Index('uq_number_order_sms_order', ['smsCodeOrderId'], { unique: true })
 @Index('idx_number_orders_user_created', ['userId', 'createdAt'])
 @Index('idx_number_orders_user_status', ['userId', 'status'])
+@Index('idx_number_orders_user_phone', ['userId', 'phoneNumber'])
+@Index('uq_number_orders_active_user_phone', ['userId', 'phoneNumber'], {
+  unique: true,
+  where: '"phoneNumber" IS NOT NULL AND "status" IN (\'IN_PROCESS\', \'VERIFY\')',
+})
 export class NumberOrder {
   @PrimaryGeneratedColumn('uuid') id!: string;
 
