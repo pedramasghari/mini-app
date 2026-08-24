@@ -3,7 +3,7 @@
 import { Copy, Loader2, Phone, RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { useSmsCode } from "@/modules/smscode/SmsCodeProvider";
 
 export type SmsOrderCardData = {
   id: string;
@@ -67,13 +67,12 @@ function timerText(seconds: number) {
 }
 
 export default function SmsOrderCard({ order, onChange, onRemove, compact = false }: Props) {
+  const { resend: resendOrder, cancel: cancelOrder } = useSmsCode();
   const [timer, setTimer] = useState(() => remaining(order.expiresAt));
   const [action, setAction] = useState<"resend" | "cancel" | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    setTimer(remaining(order.expiresAt));
-  }, [order.expiresAt]);
+  useEffect(() => setTimer(remaining(order.expiresAt)), [order.expiresAt]);
 
   useEffect(() => {
     if (!order.expiresAt || CLOSED.has(order.status)) return;
@@ -99,7 +98,7 @@ export default function SmsOrderCard({ order, onChange, onRemove, compact = fals
     if (!order.canResend || action) return;
     setAction("resend");
     try {
-      const next = await api<SmsOrderCardData>(`smscode/orders/${order.id}/resend`, { method: "POST" });
+      const next = await resendOrder(order.id);
       onChange?.(next);
       toast.success("درخواست ارسال مجدد ثبت شد.");
     } catch (error) {
@@ -113,7 +112,7 @@ export default function SmsOrderCard({ order, onChange, onRemove, compact = fals
     if (!order.canCancel || action) return;
     setAction("cancel");
     try {
-      const next = await api<SmsOrderCardData>(`smscode/orders/${order.id}/cancel`, { method: "POST" });
+      const next = await cancelOrder(order.id);
       if (["CANCELED", "CANCELLED", "EXPIRED"].includes(next.status)) {
         onRemove?.();
         toast.success("شماره لغو شد و وجه به کیف پول برگشت داده شد.");
@@ -132,27 +131,20 @@ export default function SmsOrderCard({ order, onChange, onRemove, compact = fals
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-cyan-300/10 text-cyan-200"><Phone size={17} /></span>
-          <div className="min-w-0">
-            <p className="truncate text-[11px] text-white/35">شماره فعال</p>
-            <p className="truncate text-sm font-black text-white">{statusLabel(order.status)}</p>
-          </div>
+          <div className="min-w-0"><p className="truncate text-[11px] text-white/35">شماره فعال</p><p className="truncate text-sm font-black text-white">{statusLabel(order.status)}</p></div>
         </div>
         <span className="rounded-full bg-cyan-300/10 px-2.5 py-1 text-[10px] font-bold text-cyan-200">{timerText(timer)}</span>
       </div>
-
       <div className="mt-3 flex items-center gap-2 rounded-2xl bg-black/20 px-3 py-2.5">
         <span className="min-w-0 flex-1 truncate font-mono text-base font-black tracking-wide text-white">{order.phoneNumber || "در انتظار شماره…"}</span>
         <button type="button" onClick={() => void copy()} disabled={!order.phoneNumber} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/[.06] text-white/65 disabled:opacity-30" aria-label="کپی شماره"><Copy size={15} /></button>
       </div>
-
       <div className="mt-3 rounded-2xl border border-white/8 bg-white/[.025] px-3 py-2.5">
         <div className="flex items-center justify-between gap-2 text-[10px] text-white/35"><span>آخرین کد دریافت‌شده</span><span>{order.smsRevision ? `پیامک ${order.smsRevision}` : ""}</span></div>
         <p className="mt-1 font-mono text-sm font-black tracking-widest text-cyan-200">{otpText}</p>
         {order.otpMessage ? <p className="mt-1 line-clamp-2 text-[10px] leading-5 text-white/40">{order.otpMessage}</p> : null}
       </div>
-
       {order.orderNumber ? <p className="mt-2 truncate text-[10px] text-white/25">شماره سفارش: {order.orderNumber}</p> : null}
-
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button type="button" onClick={() => void resend()} disabled={!order.canResend || Boolean(action)} className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-white/[.06] text-[10px] font-bold text-white/70 disabled:opacity-30"><RefreshCw size={13} className={action === "resend" ? "animate-spin" : ""} /> ارسال مجدد</button>
         <button type="button" onClick={() => void cancel()} disabled={!order.canCancel || Boolean(action)} className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-red-400/10 text-[10px] font-bold text-red-200 disabled:opacity-30">{action === "cancel" ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />} لغو شماره</button>
