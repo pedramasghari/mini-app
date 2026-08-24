@@ -26,23 +26,18 @@ export class AdminFinanceController {
   @Get('overview')
   async overview() {
     const wallet = await this.wallets.createQueryBuilder('w').select('COALESCE(SUM(w.balance::numeric), 0)', 'balance').addSelect('COUNT(w.id)', 'walletCount').where('w.currency = :currency', { currency: 'IRT' }).getRawOne<{ balance: string; walletCount: string }>();
-    const received = await this.transactions.createQueryBuilder('t').select('COALESCE(SUM(CASE WHEN t.amount::numeric > 0 THEN t.amount::numeric ELSE 0 END), 0)', 'total').where('t.currency = :currency', { currency: 'IRT' }).getRawOne<{ total: string }>();
+    const received = await this.transactions.createQueryBuilder('t').select('COALESCE(SUM(t.amount::numeric), 0)', 'total').where('t.currency = :currency', { currency: 'IRT' }).andWhere('t.type = :type', { type: 'DEPOSIT' }).getRawOne<{ total: string }>();
     const withdrawals = await this.transactions.createQueryBuilder('t').select('COALESCE(SUM(ABS(t.amount::numeric)), 0)', 'total').where('t.currency = :currency', { currency: 'IRT' }).andWhere("LOWER(t.type) LIKE '%withdraw%'").getRawOne<{ total: string }>();
     const serviceRevenue = await this.orders.createQueryBuilder('o').select('COALESCE(SUM(o.amount::numeric), 0)', 'total').where("o.status NOT IN ('CANCELLED', 'REFUNDED', 'FAILED')").andWhere('o.currency = :currency', { currency: 'IRT' }).getRawOne<{ total: string }>();
-    const smsRevenue = await this.smsOrders.createQueryBuilder('o').select('COALESCE(SUM(o.chargedAmount::numeric), 0)', 'total').where("o.status NOT IN ('REFUNDED', 'FAILED')").andWhere('o.currency = :currency', { currency: 'IRT' }).getRawOne<{ total: string }>();
+    const smsRevenue = await this.smsOrders.createQueryBuilder('o').select('COALESCE(SUM(o.chargedAmount::numeric), 0)', 'total').where("o.refundedAt IS NULL").andWhere("o.status NOT IN ('FAILED', 'REFUNDED')").andWhere('o.currency = :currency', { currency: 'IRT' }).getRawOne<{ total: string }>();
     return {
-      smscode: await this.providerBalance(),
-      usersBalance: wallet?.balance ?? '0',
-      walletCount: Number(wallet?.walletCount ?? 0),
-      totalReceived: received?.total ?? '0',
-      totalWithdrawals: withdrawals?.total ?? '0',
+      smscode: await this.providerBalance(), usersBalance: wallet?.balance ?? '0', walletCount: Number(wallet?.walletCount ?? 0), totalReceived: received?.total ?? '0', totalWithdrawals: withdrawals?.total ?? '0',
       serviceRevenue: { standardOrders: serviceRevenue?.total ?? '0', smsCodeOrders: smsRevenue?.total ?? '0', total: (Number(serviceRevenue?.total ?? 0) + Number(smsRevenue?.total ?? 0)).toFixed(8) },
     };
   }
 
   private async providerBalance() {
-    const token = this.config.get<string>('SMSCODE_API_TOKEN', '');
-    const version = this.config.get<string>('SMSCODE_API_VERSION', 'v1');
+    const token = this.config.get<string>('SMSCODE_API_TOKEN', ''); const version = this.config.get<string>('SMSCODE_API_VERSION', 'v1');
     if (!token) return { balance: null, currency: null, available: false, error: 'SMSCode API token is not configured.' };
     try {
       const response = await fetch(`https://api.smscode.gg/${version}/balance`, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10_000) });
