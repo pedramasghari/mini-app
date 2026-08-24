@@ -72,29 +72,16 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
       const key = `${rev}:${normalizedCode ?? ''}:${normalizedMessage ?? ''}`;
       if (seen.has(key)) return;
       seen.add(key);
-      result.push({
-        code: normalizedCode,
-        message: normalizedMessage,
-        revision: Number.isFinite(rev) ? rev : 0,
-        receivedAt: new Date(receivedAt).toISOString(),
-      });
+      result.push({ code: normalizedCode, message: normalizedMessage, revision: Number.isFinite(rev) ? rev : 0, receivedAt: new Date(receivedAt).toISOString() });
     };
 
     for (const event of events) {
-      const payload = event.payload as { data?: { otp_code?: unknown; otp_message?: unknown; sms_revision?: unknown; } } | null;
-      if (event.event === 'order.otp_received' || payload?.data?.otp_code || payload?.data?.otp_message) {
-        add(payload?.data?.otp_code, payload?.data?.otp_message, payload?.data?.sms_revision, event.createdAt);
-      }
+      const payload = event.payload as { data?: { otp_code?: unknown; otp_message?: unknown; sms_revision?: unknown } } | null;
+      if (event.event === 'order.otp_received' || payload?.data?.otp_code || payload?.data?.otp_message) add(payload?.data?.otp_code, payload?.data?.otp_message, payload?.data?.sms_revision, event.createdAt);
     }
-
-    if (snapshot?.otpCode || snapshot?.otpMessage) {
-      add(snapshot.otpCode, snapshot.otpMessage, snapshot.smsRevision, new Date());
-    }
-
+    if (snapshot?.otpCode || snapshot?.otpMessage) add(snapshot.otpCode, snapshot.otpMessage, snapshot.smsRevision, new Date());
     const providerWebhook = row.providerSnapshot?.webhook as { otp_code?: unknown; otp_message?: unknown; sms_revision?: unknown } | undefined;
-    if (providerWebhook?.otp_code || providerWebhook?.otp_message) {
-      add(providerWebhook.otp_code, providerWebhook.otp_message, providerWebhook.sms_revision, new Date());
-    }
+    if (providerWebhook?.otp_code || providerWebhook?.otp_message) add(providerWebhook.otp_code, providerWebhook.otp_message, providerWebhook.sms_revision, new Date());
 
     return result.sort((a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime());
   }
@@ -103,7 +90,6 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
     const providerStatus = String(snapshot.status ?? row.status).toUpperCase();
     if (providerStatus === 'CANCELED' || providerStatus === 'CANCELLED') return 'CANCEL';
     if (providerStatus === 'EXPIRED') return 'EXPIRED';
-
     const hasCode = otpCodes.length > 0;
     const expired = Boolean(snapshot.expiresAt && new Date(snapshot.expiresAt).getTime() <= Date.now());
     if (hasCode && (providerStatus === 'COMPLETED' || expired)) return 'SUCCESS';
@@ -175,14 +161,19 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
   }
 
   async listMyOrders(userId: string) {
-    const rows = await this.numberOrders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 100 });
+    let rows = await this.numberOrders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 100 });
+    for (const order of rows) {
+      if (['IN_PROCESS', 'VERIFY'].includes(order.status)) {
+        const smsRow = await this.smsOrders.findOne({ where: { id: order.smsCodeOrderId, userId } });
+        if (smsRow) await this.syncRow(smsRow);
+      }
+    }
+    rows = await this.numberOrders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 100 });
+
     const result = [];
     for (const order of rows) {
       const product = await this.products.findOne({ where: { id: order.productId } });
-      const transactions = await this.transactions.find({
-        where: { userId, referenceType: 'SMSCODE_ORDER', referenceId: order.smsCodeOrderId },
-        order: { createdAt: 'DESC' },
-      });
+      const transactions = await this.transactions.find({ where: { userId, referenceType: 'SMSCODE_ORDER', referenceId: order.smsCodeOrderId }, order: { createdAt: 'DESC' } });
       result.push({
         ...order,
         product: product ? { id: product.id, title: product.title, icon: product.icon, currency: product.currency } : null,
@@ -194,19 +185,16 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
   }
 
   async listActive(userId: string) {
-    const rows = await this.numberOrders.find({
-      where: { userId, status: In(['IN_PROCESS', 'VERIFY']) },
-      order: { createdAt: 'DESC' },
-      take: 20,
-    });
-
+    const rows = await this.numberOrders.find({ where: { userId, status: In(['IN_PROCESS', 'VERIFY']) }, order: { createdAt: 'DESC' }, take: 20 });
     const result = [];
     for (const order of rows) {
+      const smsRow = await this.smsOrders.findOne({ where: { id: order.smsCodeOrderId, userId } });
+      if (!smsRow) continue;
       const sms = await this.smsCode.get(userId, order.smsCodeOrderId) as SmsSnapshot;
-      const current = await this.createOrUpdate(await this.smsOrders.findOneByOrFail({ id: order.smsCodeOrderId }), sms);
+      const current = await this.createOrUpdate(smsRow, sms);
       if (!['IN_PROCESS', 'VERIFY'].includes(current.status)) continue;
       result.push({
-        id: current.id,
+        id: smsRow.id,
         orderNumber: current.orderNumber,
         status: current.status,
         productId: current.productId,
