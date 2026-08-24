@@ -68,7 +68,7 @@ export class WithdrawalsService {
     return { items, page, limit, total, pages: Math.ceil(total / limit) };
   }
 
-  /** Combined deposit + withdrawal requests. The UNION is paginated in PostgreSQL, so the API never loads the full history. */
+  /** Combined deposit + withdrawal requests. Pagination and sorting are performed by PostgreSQL. */
   async listWalletRequests(userId: string, page = 1, limit = 10, type = 'ALL', status?: string) {
     page = Math.max(1, Number(page) || 1); limit = Math.min(50, Math.max(1, Number(limit) || 10));
     const normalizedType = String(type || 'ALL').toUpperCase();
@@ -77,22 +77,25 @@ export class WithdrawalsService {
     const allowedStatus = normalizedStatus && ['PENDING', 'COMPLETED', 'CANCELLED', 'APPROVED', 'REJECTED'].includes(normalizedStatus) ? normalizedStatus : '';
     if (status && !allowedStatus) throw new BadRequestException('وضعیت درخواست نامعتبر است.');
 
-    const whereParts: string[] = ['userId = $1'];
     const params: unknown[] = [userId];
-    if (normalizedType === 'WITHDRAWAL') whereParts.push(`kind = 'WITHDRAWAL'`);
-    if (normalizedType === 'DEPOSIT') whereParts.push(`kind = 'DEPOSIT'`);
-    if (allowedStatus) { params.push(allowedStatus); whereParts.push(`status = $${params.length}`); }
-    const where = whereParts.join(' AND ');
+    const conditions = ['"userId" = $1'];
+    if (normalizedType === 'WITHDRAWAL') conditions.push(`kind = 'WITHDRAWAL'`);
+    if (normalizedType === 'DEPOSIT') conditions.push(`kind = 'DEPOSIT'`);
+    if (allowedStatus) { params.push(allowedStatus); conditions.push(`status = $${params.length}`); }
+    const where = conditions.join(' AND ');
     const union = `
-      SELECT id, 'WITHDRAWAL' AS kind, amount, currency, status, "createdAt", "completedAt", "cancelledAt", NULL::timestamptz AS "rejectedAt", "receiptPath", "cardNumber", "cardHolderName", NULL::text AS "adminReason"
+      SELECT id, "userId", 'WITHDRAWAL' AS kind, amount, currency, status, "createdAt", "completedAt", "cancelledAt", NULL::timestamptz AS "rejectedAt", "receiptPath", "cardNumber", "cardHolderName", NULL::text AS "adminReason"
       FROM withdrawal_requests
       UNION ALL
-      SELECT id, 'DEPOSIT' AS kind, amount, currency, status, "createdAt", NULL::timestamptz AS "completedAt", NULL::timestamptz AS "cancelledAt", NULL::timestamptz AS "rejectedAt", "receiptPath", NULL::text AS "cardNumber", NULL::text AS "cardHolderName", "adminReason"
+      SELECT id, "userId", 'DEPOSIT' AS kind, amount, currency, status, "createdAt", NULL::timestamptz AS "completedAt", NULL::timestamptz AS "cancelledAt", NULL::timestamptz AS "rejectedAt", "receiptPath", NULL::text AS "cardNumber", NULL::text AS "cardHolderName", "adminReason"
       FROM payment_requests
     `;
     const offset = (page - 1) * limit;
     const dataParams = [...params, limit, offset];
-    const rows = await this.dataSource.query(`SELECT id, kind, amount, currency, status, "createdAt", "completedAt", "cancelledAt", "rejectedAt", "receiptPath", "cardNumber", "cardHolderName", "adminReason" FROM (${union}) requests WHERE ${where} ORDER BY CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END, "createdAt" DESC LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`, dataParams);
+    const rows = await this.dataSource.query(
+      `SELECT id, kind, amount, currency, status, "createdAt", "completedAt", "cancelledAt", "rejectedAt", "receiptPath", "cardNumber", "cardHolderName", "adminReason" FROM (${union}) requests WHERE ${where} ORDER BY CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END, "createdAt" DESC LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+      dataParams,
+    );
     const count = await this.dataSource.query(`SELECT COUNT(*)::int AS total FROM (${union}) requests WHERE ${where}`, params);
     const total = Number(count[0]?.total ?? 0);
     return { items: rows, page, limit, total, pages: Math.ceil(total / limit) };
