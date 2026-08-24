@@ -6,6 +6,7 @@ import AdminGuard from './AdminGuard';
 
 const links = [
   { href: '/admin', label: 'داشبورد' },
+  { href: '/admin/support', label: 'پشتیبانی' },
   { href: '/admin/finace', label: 'مالی' },
   { href: '/admin/user', label: 'کاربران' },
   { href: '/admin/orders', label: 'سفارش‌ها' },
