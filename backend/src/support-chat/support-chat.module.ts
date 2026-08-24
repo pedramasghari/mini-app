@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminModule } from '../admin/admin.module';
+import { AdminBotModule } from '../admin-bot/admin-bot.module';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { UsersModule } from '../users/users.module';
@@ -10,7 +11,7 @@ import { SupportChatController } from './support-chat.controller';
 import { SupportChatService } from './support-chat.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([SupportConversation, SupportMessage]), AuthModule, UsersModule, NotificationsModule, AdminModule],
+  imports: [TypeOrmModule.forFeature([SupportConversation, SupportMessage]), AuthModule, UsersModule, NotificationsModule, AdminBotModule, AdminModule],
   controllers: [SupportChatController],
   providers: [SupportChatService],
   exports: [SupportChatService],
