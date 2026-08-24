@@ -20,24 +20,64 @@ import {
 import AdminGuard from "./AdminGuard";
 
 const links = [
-  { href: "/admin", label: "داشبورد", description: "نمای کلی و آمار", icon: LayoutDashboard },
-  { href: "/admin/services", label: "سرویس‌ها", description: "مدیریت سرویس و محصولات", icon: Package },
-  { href: "/admin/orders", label: "سفارش‌ها", description: "پیگیری و مدیریت سفارش‌ها", icon: ClipboardList },
-  { href: "/admin/user", label: "کاربران", description: "مدیریت کاربران", icon: Users },
-  { href: "/admin/finance", label: "مالی", description: "گزارش‌ها و تراکنش‌ها", icon: CircleDollarSign },
-  { href: "/admin/payments", label: "درخواست‌های شارژ", description: "بررسی درخواست‌های پرداخت", icon: BarChart3 },
-  { href: "/admin/support", label: "پشتیبانی", description: "گفتگوهای کاربران", icon: Headphones },
+  {
+    href: "/admin",
+    label: "داشبورد",
+    description: "نمای کلی و آمار",
+    icon: LayoutDashboard,
+  },
+  {
+    href: "/admin/services",
+    label: "سرویس‌ها",
+    description: "مدیریت سرویس و محصولات",
+    icon: Package,
+  },
+  {
+    href: "/admin/orders",
+    label: "سفارش‌ها",
+    description: "پیگیری و مدیریت سفارش‌ها",
+    icon: ClipboardList,
+  },
+  {
+    href: "/admin/user",
+    label: "کاربران",
+    description: "مدیریت کاربران",
+    icon: Users,
+  },
+  {
+    href: "/admin/finance",
+    label: "مالی",
+    description: "گزارش‌ها و تراکنش‌ها",
+    icon: CircleDollarSign,
+  },
+  {
+    href: "/admin/payments",
+    label: "درخواست‌های شارژ",
+    description: "بررسی درخواست‌های پرداخت",
+    icon: BarChart3,
+  },
+  {
+    href: "/admin/support",
+    label: "پشتیبانی",
+    description: "گفتگوهای کاربران",
+    icon: Headphones,
+  },
 ];
 
 function isActive(pathname: string, href: string) {
   return href === "/admin" ? pathname === href : pathname.startsWith(href);
 }
 
-export default function AdminShell({ children }: { children: React.ReactNode }) {
+export default function AdminShell({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const current = links.find((link) => isActive(pathname, link.href)) ?? links[0];
+  const current =
+    links.find((link) => isActive(pathname, link.href)) ?? links[0];
   const CurrentIcon = current.icon;
 
   return (
@@ -59,13 +99,20 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
               <Menu size={21} />
             </button>
 
-            <Link href="/admin" className="group flex min-w-0 items-center gap-3 rounded-2xl px-1.5 py-1.5 transition hover:bg-white/[0.05]">
+            <Link
+              href="/admin"
+              className="group flex min-w-0 items-center gap-3 rounded-2xl px-1.5 py-1.5 transition hover:bg-white/[0.05]"
+            >
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 shadow-lg shadow-cyan-500/10">
                 <ShieldCheck size={21} />
               </span>
               <span className="hidden min-w-0 sm:block">
-                <span className="block text-sm font-extrabold tracking-tight">Mini App</span>
-                <span className="block text-[11px] text-white/40">مدیریت سیستم</span>
+                <span className="block text-sm font-extrabold tracking-tight">
+                  Mini App
+                </span>
+                <span className="block text-[11px] text-white/40">
+                  مدیریت سیستم
+                </span>
               </span>
             </Link>
 
@@ -76,8 +123,12 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 <CurrentIcon size={17} />
               </span>
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold">{current.label}</div>
-                <div className="hidden truncate text-[10px] text-white/35 sm:block">{current.description}</div>
+                <div className="truncate text-sm font-semibold">
+                  {current.label}
+                </div>
+                <div className="hidden truncate text-[10px] text-white/35 sm:block">
+                  {current.description}
+                </div>
               </div>
             </div>
 
@@ -86,7 +137,10 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 <Settings2 size={15} className="text-white/35" />
                 <span className="text-xs text-white/45">Admin</span>
               </div>
-              <Link href="/panel" className="rounded-xl border border-white/10 px-3 py-2 text-xs font-medium text-white/55 transition hover:bg-white/[0.06] hover:text-white">
+              <Link
+                href="/panel"
+                className="rounded-xl border border-white/10 px-3 py-2 text-xs font-medium text-white/55 transition hover:bg-white/[0.06] hover:text-white"
+              >
                 خروج از مدیریت
               </Link>
             </div>
@@ -109,10 +163,17 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                   </span>
                   <div>
                     <div className="font-black">پنل مدیریت</div>
-                    <div className="mt-0.5 text-[11px] text-white/35">Mini App Administration</div>
+                    <div className="mt-0.5 text-[11px] text-white/35">
+                      Mini App Administration
+                    </div>
                   </div>
                 </div>
-                <button type="button" onClick={() => setDrawerOpen(false)} className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-white/55 transition hover:bg-white/[0.06] hover:text-white" aria-label="بستن">
+                <button
+                  type="button"
+                  onClick={() => setDrawerOpen(false)}
+                  className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-white/55 transition hover:bg-white/[0.06] hover:text-white"
+                  aria-label="بستن"
+                >
                   <X size={19} />
                 </button>
               </div>
@@ -120,17 +181,23 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
               <div className="border-b border-white/[0.06] px-5 py-4">
                 <div className="rounded-2xl border border-cyan-400/10 bg-cyan-400/[0.04] p-3">
                   <div className="flex items-center gap-3">
-                    <span className="grid h-10 w-10 place-items-center rounded-xl bg-cyan-400/10 text-cyan-300"><CurrentIcon size={18} /></span>
+                    <span className="grid h-10 w-10 place-items-center rounded-xl bg-cyan-400/10 text-cyan-300">
+                      <CurrentIcon size={18} />
+                    </span>
                     <div className="min-w-0">
                       <div className="text-sm font-bold">{current.label}</div>
-                      <div className="truncate text-[11px] text-white/35">{current.description}</div>
+                      <div className="truncate text-[11px] text-white/35">
+                        {current.description}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
               <nav className="flex-1 overflow-y-auto p-4">
-                <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-wider text-white/25">مدیریت</div>
+                <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-wider text-white/25">
+                  مدیریت
+                </div>
                 <div className="grid gap-1.5">
                   {links.map((link) => {
                     const Icon = link.icon;
@@ -142,14 +209,22 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                         onClick={() => setDrawerOpen(false)}
                         className={`flex items-center gap-3 rounded-2xl px-3 py-3 transition ${active ? "bg-cyan-400/10 text-cyan-200 ring-1 ring-inset ring-cyan-400/10" : "text-white/60 hover:bg-white/[0.05] hover:text-white"}`}
                       >
-                        <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${active ? "bg-cyan-400/15" : "bg-white/[0.04]"}`}>
+                        <span
+                          className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${active ? "bg-cyan-400/15" : "bg-white/[0.04]"}`}
+                        >
                           <Icon size={18} />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-semibold">{link.label}</span>
-                          <span className="mt-0.5 block truncate text-[10px] text-white/30">{link.description}</span>
+                          <span className="block text-sm font-semibold">
+                            {link.label}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[10px] text-white/30">
+                            {link.description}
+                          </span>
                         </span>
-                        {active && <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/50" />}
+                        {active && (
+                          <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-lg shadow-cyan-300/50" />
+                        )}
                       </Link>
                     );
                   })}
@@ -157,8 +232,14 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
               </nav>
 
               <div className="border-t border-white/[0.08] p-4">
-                <Link href="/panel" onClick={() => setDrawerOpen(false)} className="flex items-center gap-3 rounded-2xl border border-white/10 px-3 py-3 text-sm text-white/55 transition hover:bg-white/[0.05] hover:text-white">
-                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-white/[0.04]"><LogOut size={17} /></span>
+                <Link
+                  href="/panel"
+                  onClick={() => setDrawerOpen(false)}
+                  className="flex items-center gap-3 rounded-2xl border border-white/10 px-3 py-3 text-sm text-white/55 transition hover:bg-white/[0.05] hover:text-white"
+                >
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-white/[0.04]">
+                    <LogOut size={17} />
+                  </span>
                   <span>بازگشت به پنل کاربری</span>
                 </Link>
               </div>
@@ -167,19 +248,6 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         )}
 
         <main className="relative z-10 mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">
-          <div className="mb-6 flex items-end justify-between gap-4">
-            <div>
-              <div className="mb-2 flex items-center gap-2 text-xs text-white/35">
-                <span>مدیریت</span><span>/</span><span className="text-white/55">{current.label}</span>
-              </div>
-              <h1 className="text-2xl font-black tracking-tight sm:text-3xl">{current.label}</h1>
-              <p className="mt-1 text-sm text-white/40">{current.description}</p>
-            </div>
-            <button type="button" onClick={() => router.refresh()} className="hidden rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/50 transition hover:bg-white/[0.06] hover:text-white sm:block">
-              بروزرسانی
-            </button>
-          </div>
-
           <div className="min-w-0">{children}</div>
         </main>
       </div>
