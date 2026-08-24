@@ -8,6 +8,7 @@ import { ActivationProgress, Order, OrderInput, PaymentRequest, Product, Service
 import { AdminController } from './admin.controller';
 import { AdminFinanceController } from './admin-finance.controller';
 import { AdminUsersController } from './admin-users.controller';
+import { AdminOrdersController } from './admin-orders.controller';
 import { AdminGuard } from './admin.guard';
 
 @Module({
@@ -16,7 +17,7 @@ import { AdminGuard } from './admin.guard';
     CommerceModule,
     TypeOrmModule.forFeature([User, Wallet, WalletTransaction, Order, OrderInput, Product, Service, SmsCodeOrder, PaymentRequest, ActivationProgress]),
   ],
-  controllers: [AdminController, AdminFinanceController, AdminUsersController],
+  controllers: [AdminController, AdminFinanceController, AdminUsersController, AdminOrdersController],
   providers: [AdminGuard],
   exports: [AdminGuard],
 })
