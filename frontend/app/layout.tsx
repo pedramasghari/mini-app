@@ -4,6 +4,7 @@ import './globals.css';
 import { TelegramProvider } from '@/components/TelegramProvider';
 import Header from '@/components/header/header';
 import { PanelProvider } from '@/context/PanelContext';
+import { SmsCodeProvider } from '@/modules/smscode/SmsCodeProvider';
 import { Toaster } from 'sonner';
 
 const vazirmatn = Vazirmatn({ subsets: ['arabic'], display: 'swap', variable: '--font-vazirmatn' });
@@ -15,9 +16,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Script src="https://telegram.org/js/telegram-web-app.js?59" strategy="beforeInteractive" />
         <TelegramProvider>
           <PanelProvider>
-            <Header />
-            {children}
-            <Toaster position="top-center" richColors closeButton theme="dark" dir="rtl" toastOptions={{ duration: 4500 }} />
+            <SmsCodeProvider>
+              <Header />
+              {children}
+              <Toaster position="top-center" richColors closeButton theme="dark" dir="rtl" toastOptions={{ duration: 4500 }} />
+            </SmsCodeProvider>
           </PanelProvider>
         </TelegramProvider>
       </body>
