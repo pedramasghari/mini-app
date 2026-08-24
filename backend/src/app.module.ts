@@ -9,6 +9,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AdminBotModule } from './admin-bot/admin-bot.module';
 import { AdminModule } from './admin/admin.module';
 import { SupportChatModule } from './support-chat/support-chat.module';
+import { WithdrawalsModule } from './withdrawals/withdrawals.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { SupportChatModule } from './support-chat/support-chat.module';
     AuthModule,
     NotificationsModule,
     CommerceModule,
+    WithdrawalsModule,
     AdminBotModule,
     AdminModule,
     SupportChatModule,
