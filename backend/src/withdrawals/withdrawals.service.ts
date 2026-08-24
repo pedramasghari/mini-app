@@ -46,12 +46,15 @@ export class WithdrawalsService {
       if (!wallet) throw new NotFoundException('کیف پول پیدا نشد.');
 
       const updated = await manager.query(
-        `UPDATE wallets SET balance = balance - $1, "updatedAt" = NOW() WHERE id = $2 AND balance >= $1 RETURNING balance`,
+        `UPDATE wallets SET balance = balance - $1, "updatedAt" = NOW() WHERE id = $2 AND balance >= $1 RETURNING balance AS "newBalance"`,
         [amount, wallet.id],
-      );
+      ) as Array<{ newBalance: string }>;
       if (!updated.length) throw new BadRequestException('موجودی کیف پول کافی نیست.');
       const balanceBefore = String(wallet.balance);
-      const balanceAfter = String(updated[0].balance);
+      const balanceAfter = String(updated[0].newBalance);
+      if (!balanceAfter || balanceAfter === 'undefined' || !/^[-+]?\d+(\.\d+)?$/.test(balanceAfter)) {
+        throw new BadRequestException('موجودی کیف پول پس از برداشت نامعتبر است.');
+      }
 
       const saved = await manager.getRepository(WithdrawalRequest).save(manager.getRepository(WithdrawalRequest).create({
         userId, cardNumber, cardHolderName, amount, currency: CURRENCY, status: 'PENDING',
@@ -88,8 +91,16 @@ export class WithdrawalsService {
       if (!wallet) throw new NotFoundException('کیف پول پیدا نشد.');
 
       const balanceBefore = String(wallet.balance);
-      const updated = await manager.query(`UPDATE wallets SET balance = balance + $1, "updatedAt" = NOW() WHERE id = $2 RETURNING balance`, [request.amount, wallet.id]);
-      const balanceAfter = String(updated[0].balance);
+      const updated = await manager.query(
+        `UPDATE wallets SET balance = balance + $1, "updatedAt" = NOW() WHERE id = $2 RETURNING balance AS "newBalance"`,
+        [request.amount, wallet.id],
+      ) as Array<{ newBalance: string }>;
+      if (!updated.length) throw new NotFoundException('کیف پول پیدا نشد.');
+      const balanceAfter = String(updated[0].newBalance);
+      if (!balanceAfter || balanceAfter === 'undefined' || !/^[-+]?\d+(\.\d+)?$/.test(balanceAfter)) {
+        throw new BadRequestException('موجودی کیف پول پس از بازگشت نامعتبر است.');
+      }
+
       request.status = 'CANCELLED'; request.cancelledAt = new Date();
       await manager.getRepository(WithdrawalRequest).save(request);
       await manager.getRepository(WalletTransaction).save(manager.getRepository(WalletTransaction).create({
