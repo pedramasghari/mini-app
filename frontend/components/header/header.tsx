@@ -7,7 +7,7 @@ import NotificationCenter from "../panel/NotificationCenter";
 import { WalletCenter } from "../wallet/walletcenter";
 import ProfileCenter from "../profile/ProfileCenter";
 import { useAppStore } from "@/context/useApp";
-import { ShoppingBag } from "lucide-react";
+import { Headphones, ShoppingBag } from "lucide-react";
 
 export default function Header() {
   const { activeTab, setActiveTab } = useAppStore();
@@ -25,20 +25,16 @@ export default function Header() {
 
   return (
     <header dir="rtl" className="sticky top-0 z-50 -mx-3 mb-4 flex min-w-0 items-center justify-between gap-2 border-b border-white/5 bg-[#070b14]/90 px-3 py-3 backdrop-blur-xl sm:-mx-5 sm:px-5">
-      <Link href="/panel" onClick={() => setActiveTab("home")} className="min-w-0 cursor-pointer border border-[#333] hover:bg-white/10 p-2 rounded-xl flex gap-2 items-center">
+      <Link href="/panel" onClick={() => setActiveTab("home")} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-[#333] p-2 hover:bg-white/10">
         <ShoppingBag size={20} className="text-white" />
         <p className="truncate text-lg font-bold text-white">فروشگاه</p>
       </Link>
 
       <div className="flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-2">
-        <WalletCenter
-          balance={wallet?.balance}
-          open={activeMenu === "wallet"}
-          onOpenChange={(open) => setMenu(open ? "wallet" : null)}
-          onDeposit={onDeposit}
-          onWithdraw={onWithdraw}
-          onTransactions={onTransactions}
-        />
+        <Link href="/panel/support" aria-label="پشتیبانی" className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[.05] text-white/80 hover:bg-white/[.09] sm:h-11 sm:w-11 sm:rounded-2xl">
+          <Headphones size={20} strokeWidth={1.8} />
+        </Link>
+        <WalletCenter balance={wallet?.balance} open={activeMenu === "wallet"} onOpenChange={(open) => setMenu(open ? "wallet" : null)} onDeposit={onDeposit} onWithdraw={onWithdraw} onTransactions={onTransactions} />
         <NotificationCenter open={activeMenu === "notifications"} onOpenChange={(open) => setMenu(open ? "notifications" : null)} />
         <ProfileCenter user={user} realtime={realtime} open={activeMenu === "profile"} onOpenChange={(open) => setMenu(open ? "profile" : null)} onLogout={onLogout} />
       </div>
