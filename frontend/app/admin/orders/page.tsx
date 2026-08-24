@@ -2,54 +2,24 @@
 
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ArrowRight, CheckCircle2, Clock3, Copy, ExternalLink, Loader2, Package, Server, UserRound } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock3, Copy, CreditCard, Loader2, Package, Server, UserRound } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { api, fa } from '../../../lib/api';
 
 type Detail = { found: boolean; kind?: 'ORDER' | 'SMSCODE'; order?: Record<string, unknown>; product?: Record<string, unknown> | null; service?: Record<string, unknown> | null; user?: Record<string, unknown> | null; inputs?: Array<Record<string, unknown>>; progress?: Record<string, unknown> | null };
-
 const date = (value: unknown) => value ? new Date(String(value)).toLocaleString('fa-IR', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 const money = (value: unknown, currency = 'IRT') => `${fa(Number(value || 0))} ${currency}`;
 
 export default function AdminOrdersPage() {
-  const params = useSearchParams();
-  const orderId = params.get('orderId');
-  const kind = params.get('kind');
-  const [data, setData] = useState<Detail | null>(null);
-  const [loading, setLoading] = useState(Boolean(orderId));
-
-  useEffect(() => {
-    if (!orderId) { setData(null); setLoading(false); return; }
-    setLoading(true);
-    api<Detail>(`admin/finance/orders/${encodeURIComponent(orderId)}${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`).then(setData).finally(() => setLoading(false));
-  }, [orderId, kind]);
-
+  const params = useSearchParams(); const orderId = params.get('orderId'); const kind = params.get('kind');
+  const [data, setData] = useState<Detail | null>(null); const [loading, setLoading] = useState(Boolean(orderId));
+  useEffect(() => { if (!orderId) { setData(null); setLoading(false); return; } setLoading(true); api<Detail>(`admin/finance/orders/${encodeURIComponent(orderId)}${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`).then(setData).finally(() => setLoading(false)); }, [orderId, kind]);
   if (!orderId) return <div dir="rtl" className="rounded-[28px] border border-white/10 bg-[#0b111a] p-10 text-center text-white/35">برای مشاهده جزئیات، یک سفارش را از تراکنش‌های مالی انتخاب کنید.</div>;
   if (loading) return <div className="grid min-h-[420px] place-items-center"><Loader2 className="animate-spin text-cyan-300" /></div>;
   if (!data?.found) return <div dir="rtl" className="rounded-[28px] border border-rose-400/10 bg-[#0b111a] p-10 text-center text-rose-300">سفارش پیدا نشد.</div>;
-
-  const order = data.order ?? {};
-  const product = data.product ?? {};
-  const service = data.service ?? {};
-  const user = data.user ?? {};
-  const isSms = data.kind === 'SMSCODE';
-  const currency = String(order.currency ?? 'IRT');
-
-  return <div dir="rtl" className="space-y-5">
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="mb-2 text-xs text-white/30">مدیریت / سفارش‌ها / پیگیری سفارش</div><h2 className="text-2xl font-black">جزئیات سفارش</h2><p className="mt-1 text-xs text-white/35">{isSms ? 'سفارش SMSCode' : 'سفارش سرویس'} · {String(order.id)}</p></div><button onClick={() => window.history.back()} className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs text-white/50 hover:bg-white/5"><ArrowRight size={15} /> بازگشت</button></div>
-
-    <section className="grid gap-3 sm:grid-cols-3"><Info icon={Package} title="وضعیت" value={String(order.status ?? '—')} /><Info icon={CircleIcon} title="مبلغ" value={money(order.amount ?? order.chargedAmount, currency)} /><Info icon={Clock3} title="ثبت سفارش" value={date(order.createdAt)} /></section>
-
-    <div className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
-      <section className="rounded-[26px] border border-white/10 bg-[#0b111a] p-5"><h3 className="mb-5 text-lg font-black">اطلاعات سرویس</h3><div className="grid gap-3 sm:grid-cols-2"><Detail label="سرویس" value={String(service.title ?? '—')} /><Detail label="محصول" value={String(product.title ?? '—')} /><Detail label="قیمت" value={money(product.price ?? order.amount ?? order.chargedAmount, currency)} /><Detail label="Order ID" value={String(order.id)} copy /><Detail label={isSms ? 'Provider Order ID' : 'نوع سفارش'} value={isSms ? String(order.providerOrderId ?? '—') : 'سرویس معمولی'} copy={isSms && Boolean(order.providerOrderId)} /><Detail label="آخرین بروزرسانی" value={date(order.updatedAt)} /></div>{isSms && <div className="mt-5 rounded-2xl border border-cyan-400/10 bg-cyan-400/[0.04] p-4"><div className="mb-2 flex items-center gap-2 text-xs font-bold text-cyan-300"><Server size={15} /> وضعیت SMSCode</div><div className="grid gap-3 sm:grid-cols-3"><Detail label="شماره" value={String(order.phoneNumber ?? '—')} /><Detail label="انقضا" value={date(order.expiresAt)} /><Detail label="Refund" value={order.refundedAt ? `بله · ${money(order.refundedAmount, currency)}` : 'خیر'} /></div></div>}</section>
-
-      <section className="rounded-[26px] border border-white/10 bg-[#0b111a] p-5"><h3 className="mb-5 text-lg font-black">کاربر</h3><div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center overflow-hidden rounded-full bg-cyan-400/10 text-cyan-300">{user.photoUrl ? <img src={String(user.photoUrl)} alt="" className="h-full w-full object-cover" /> : <UserRound size={20} />}</div><div><div className="font-bold">{String(user.firstName ?? '')} {String(user.lastName ?? '') || String(user.username ?? 'کاربر')}</div><div className="mt-1 text-xs text-white/35">Telegram ID: {String(user.telegramId ?? '—')}</div></div></div><div className="mt-5 space-y-3"><Detail label="Username" value={user.username ? `@${String(user.username)}` : '—'} /><Detail label="User ID" value={String(user.id ?? '—')} copy /></div></section>
-    </div>
-
-    {data.inputs?.length ? <section className="rounded-[26px] border border-white/10 bg-[#0b111a] p-5"><h3 className="mb-4 text-lg font-black">اطلاعات ثبت‌شده سفارش</h3><div className="grid gap-3 sm:grid-cols-2">{data.inputs.map((input) => <Detail key={String(input.id)} label={String(input.key)} value={String(input.value)} />)}</div></section> : null}
-    {data.progress ? <section className="rounded-[26px] border border-white/10 bg-[#0b111a] p-5"><h3 className="mb-4 text-lg font-black">Progress راهنما</h3><div className="flex items-center gap-3 text-sm"><CheckCircle2 className={data.progress.completed ? 'text-emerald-300' : 'text-white/20'} size={20} /><span>مرحله فعلی: {fa(Number(data.progress.currentStep ?? 0))}</span><span className="text-white/25">·</span><span>{data.progress.completed ? 'تکمیل شده' : 'در حال انجام'}</span></div></section> : null}
-  </div>;
+  const order = data.order ?? {}; const product = data.product ?? {}; const service = data.service ?? {}; const user = data.user ?? {}; const isSms = data.kind === 'SMSCODE'; const currency = String(order.currency ?? 'IRT');
+  return <div dir="rtl" className="space-y-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="mb-2 text-xs text-white/30">مدیریت / سفارش‌ها / پیگیری سفارش</div><h2 className="text-2xl font-black">جزئیات سفارش</h2><p className="mt-1 text-xs text-white/35">{isSms ? 'سفارش SMSCode' : 'سفارش سرویس'} · {String(order.id)}</p></div><button onClick={() => window.history.back()} className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs text-white/50 hover:bg-white/5"><ArrowRight size={15} /> بازگشت</button></div><section className="grid gap-3 sm:grid-cols-3"><Info icon={Package} title="وضعیت" value={String(order.status ?? '—')} /><Info icon={CreditCard} title="مبلغ" value={money(order.amount ?? order.chargedAmount, currency)} /><Info icon={Clock3} title="ثبت سفارش" value={date(order.createdAt)} /></section><div className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]"><section className="rounded-[26px] border border-white/10 bg-[#0b111a] p-5"><h3 className="mb-5 text-lg font-black">اطلاعات سرویس</h3><div className="grid gap-3 sm:grid-cols-2"><Detail label="سرویس" value={String(service.title ?? '—')} /><Detail label="محصول" value={String(product.title ?? '—')} /><Detail label="قیمت" value={money(product.price ?? order.amount ?? order.chargedAmount, currency)} /><Detail label="Order ID" value={String(order.id)} copy /><Detail label={isSms ? 'Provider Order ID' : 'نوع سفارش'} value={isSms ? String(order.providerOrderId ?? '—') : 'سرویس معمولی'} copy={isSms && Boolean(order.providerOrderId)} /><Detail label="آخرین بروزرسانی" value={date(order.updatedAt)} /></div>{isSms && <div className="mt-5 rounded-2xl border border-cyan-400/10 bg-cyan-400/[0.04] p-4"><div className="mb-2 flex items-center gap-2 text-xs font-bold text-cyan-300"><Server size={15} /> وضعیت SMSCode</div><div className="grid gap-3 sm:grid-cols-3"><Detail label="شماره" value={String(order.phoneNumber ?? '—')} /><Detail label="انقضا" value={date(order.expiresAt)} /><Detail label="Refund" value={order.refundedAt ? `بله · ${money(order.refundedAmount, currency)}` : 'خیر'} /></div></div>}</section><section className="rounded-[26px] border border-white/10 bg-[#0b111a] p-5"><h3 className="mb-5 text-lg font-black">کاربر</h3><div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center overflow-hidden rounded-full bg-cyan-400/10 text-cyan-300">{user.photoUrl ? <img src={String(user.photoUrl)} alt="" className="h-full w-full object-cover" /> : <UserRound size={20} />}</div><div><div className="font-bold">{String(user.firstName ?? '')} {String(user.lastName ?? '') || String(user.username ?? 'کاربر')}</div><div className="mt-1 text-xs text-white/35">Telegram ID: {String(user.telegramId ?? '—')}</div></div></div><div className="mt-5 space-y-3"><Detail label="Username" value={user.username ? `@${String(user.username)}` : '—'} /><Detail label="User ID" value={String(user.id ?? '—')} copy /></div></section></div>{data.inputs?.length ? <section className="rounded-[26px] border border-white/10 bg-[#0b111a] p-5"><h3 className="mb-4 text-lg font-black">اطلاعات ثبت‌شده سفارش</h3><div className="grid gap-3 sm:grid-cols-2">{data.inputs.map((input) => <Detail key={String(input.id)} label={String(input.key)} value={String(input.value)} />)}</div></section> : null}{data.progress ? <section className="rounded-[26px] border border-white/10 bg-[#0b111a] p-5"><h3 className="mb-4 text-lg font-black">Progress راهنما</h3><div className="flex items-center gap-3 text-sm"><CheckCircle2 className={data.progress.completed ? 'text-emerald-300' : 'text-white/20'} size={20} /><span>مرحله فعلی: {fa(Number(data.progress.currentStep ?? 0))}</span><span className="text-white/25">·</span><span>{data.progress.completed ? 'تکمیل شده' : 'در حال انجام'}</span></div></section> : null}</div>;
 }
 
-function Info({ icon: Icon, title, value }: { icon: typeof Package; title: string; value: string }) { return <div className="rounded-2xl border border-white/10 bg-[#0b111a] p-4"><div className="mb-3 flex items-center gap-2 text-xs text-white/35"><Icon size={15} />{title}</div><div className="truncate text-lg font-black">{value}</div></div>; }
+function Info({ icon: Icon, title, value }: { icon: LucideIcon; title: string; value: string }) { return <div className="rounded-2xl border border-white/10 bg-[#0b111a] p-4"><div className="mb-3 flex items-center gap-2 text-xs text-white/35"><Icon size={15} />{title}</div><div className="truncate text-lg font-black">{value}</div></div>; }
 function Detail({ label, value, copy = false }: { label: string; value: string; copy?: boolean }) { return <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"><div className="mb-1 text-[10px] text-white/25">{label}</div><div className="flex items-center gap-2 text-sm text-white/70"><span className="min-w-0 flex-1 break-all">{value}</span>{copy && value !== '—' && <button onClick={() => void navigator.clipboard?.writeText(value)} className="shrink-0 text-white/25 hover:text-cyan-300" title="کپی"><Copy size={13} /></button>}</div></div>; }
-function CircleIcon(props: { size?: number }) { return <CreditCard {...props} />; }
