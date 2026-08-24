@@ -1,8 +1,9 @@
 import { BadRequestException, Controller, Get, Param, Post, Query, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { extname } from 'node:path';
+import { extname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { unlink } from 'node:fs/promises';
 import type { Express } from 'express';
 import type { Request } from 'express';
 import { AdminGuard } from './admin.guard';
@@ -23,16 +24,10 @@ export class AdminWithdrawalsController {
 
   @Post(':id/complete')
   @UseInterceptors(FileInterceptor('receipt', {
-    storage: diskStorage({
-      destination: UPLOAD_DIR,
-      filename: (_req, file, cb) => cb(null, `${randomUUID()}${extname(file.originalname).toLowerCase()}`),
-    }),
+    storage: diskStorage({ destination: UPLOAD_DIR, filename: (_req, file, cb) => cb(null, `${randomUUID()}${extname(file.originalname).toLowerCase()}`) }),
     limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
-      if (!ALLOWED.has(file.mimetype)) {
-        cb(new BadRequestException('فقط JPG، PNG، WebP یا PDF مجاز است.'), false);
-        return;
-      }
+      if (!ALLOWED.has(file.mimetype)) { cb(new BadRequestException('فقط JPG، PNG، WebP یا PDF مجاز است.'), false); return; }
       cb(null, true);
     },
   }))
@@ -40,6 +35,12 @@ export class AdminWithdrawalsController {
     if (!receipt) throw new BadRequestException('تصویر یا فایل واریزی الزامی است.');
     const adminUserId = (req as Request & { adminSession?: { user: { id: string } } }).adminSession?.user.id;
     if (!adminUserId) throw new BadRequestException('شناسه ادمین در Session وجود ندارد.');
-    return this.withdrawals.adminComplete(id, adminUserId, `/uploads/withdrawals/${receipt.filename}`);
+    const receiptPath = `/uploads/withdrawals/${receipt.filename}`;
+    try {
+      return await this.withdrawals.adminComplete(id, adminUserId, receiptPath);
+    } catch (error) {
+      await unlink(join(process.cwd(), receiptPath.replace(/^\//, ''))).catch(() => undefined);
+      throw error;
+    }
   }
 }
