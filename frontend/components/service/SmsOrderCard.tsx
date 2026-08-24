@@ -6,7 +6,10 @@ import { toast } from "sonner";
 import { useSmsCode } from "@/modules/smscode/SmsCodeProvider";
 
 export type SmsOrderCardData = {
+  /** Durable NumberOrder id when rendered from an order list. */
   id: string;
+  /** Underlying SmsCodeOrder id used for provider actions. */
+  smsOrderId?: string;
   orderNumber?: string;
   status: string;
   phoneNumber: string | null;
@@ -81,6 +84,7 @@ export default function SmsOrderCard({ order, onChange, onRemove, compact = fals
   }, [order.expiresAt, order.status]);
 
   const otpText = useMemo(() => order.otpCode || "در انتظار دریافت پیامک...", [order.otpCode]);
+  const providerOrderId = order.smsOrderId ?? order.id;
 
   async function copy() {
     if (!order.phoneNumber) return;
@@ -98,7 +102,7 @@ export default function SmsOrderCard({ order, onChange, onRemove, compact = fals
     if (!order.canResend || action) return;
     setAction("resend");
     try {
-      const next = await resendOrder(order.id);
+      const next = await resendOrder(providerOrderId);
       onChange?.(next);
       toast.success("درخواست ارسال مجدد ثبت شد.");
     } catch (error) {
@@ -112,7 +116,7 @@ export default function SmsOrderCard({ order, onChange, onRemove, compact = fals
     if (!order.canCancel || action) return;
     setAction("cancel");
     try {
-      const next = await cancelOrder(order.id);
+      const next = await cancelOrder(providerOrderId);
       if (["CANCELED", "CANCELLED", "EXPIRED"].includes(next.status)) {
         onRemove?.();
         toast.success("شماره لغو شد و وجه به کیف پول برگشت داده شد.");
