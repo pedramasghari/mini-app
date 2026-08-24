@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -38,11 +38,7 @@ export class NumberOrdersController {
     return this.orders.listActive(await this.userId(req));
   }
 
-  /**
-   * Canonical cancel endpoint for every SmsOrderCard.
-   * The SMSCode order is cancelled first; the resulting refund transaction
-   * is then attached to the user-facing NumberOrder.
-   */
+  /** Canonical cancellation endpoint used by every SmsOrderCard. */
   @Post('by-sms/:smsOrderId/cancel')
   async cancelBySms(@Req() req: Request, @Param('smsOrderId') smsOrderId: string) {
     const userId = await this.userId(req);
@@ -50,20 +46,19 @@ export class NumberOrdersController {
       where: { userId, smsCodeOrderId: smsOrderId },
     });
 
-    if (!numberOrder) {
-      throw new Error('سفارش شماره پیدا نشد.');
-    }
+    if (!numberOrder) throw new NotFoundException('سفارش شماره پیدا نشد.');
 
     const cancelled = await this.smsCode.cancel(userId, smsOrderId);
 
-    // SmsCodeService creates the refund against SMSCODE_ORDER. Re-link all
-    // transactions belonging to this SMS order to the durable NumberOrder.
+    // SmsCodeService creates debit/refund transactions using the provider-order
+    // reference. Re-parent them to the durable user-facing NumberOrder.
     const linked = await this.transactions.find({
       where: {
         userId,
         referenceType: 'SMSCODE_ORDER',
         referenceId: smsOrderId,
       },
+      order: { createdAt: 'ASC' },
     });
 
     for (const transaction of linked) {
