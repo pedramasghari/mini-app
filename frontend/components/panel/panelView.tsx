@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { initials } from "@/lib/helper";
 import { Me } from "./types";
 import { CreditCard, Home, ShoppingBag, WalletCards } from "lucide-react";
@@ -12,7 +13,6 @@ export default function PanelView({ me }: { me: Me }) {
   const { setActiveTab } = useAppStore();
   const { user, wallet } = me;
   const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || "کاربر تلگرام";
-  const go = (path: string) => { window.location.href = path; };
 
   return (
     <div className="mx-auto w-full max-w-2xl px-3 pb-24 pt-3 sm:px-5 sm:pt-5">
@@ -30,7 +30,12 @@ export default function PanelView({ me }: { me: Me }) {
       <div className="mt-7 flex min-w-0 items-end justify-between gap-3 sm:mt-8"><div className="min-w-0"><p className="text-xs font-bold text-cyan-300/60">سرویس‌ها</p><h2 className="mt-1 truncate text-xl font-black sm:text-2xl">خرید سرویس</h2></div><ShoppingBag className="shrink-0 text-white/35" size={21}/></div>
       <ServiceCatalogV2 />
 
-      <div className="mt-7 grid grid-cols-2 gap-2.5 sm:mt-8">{[[Home,"فعال‌سازی مرحله‌ای"],[CreditCard,"پرداخت امن"],[WalletCards,"مدیریت کیف پول"],[ShoppingBag,"سفارش‌های من"]].map(([Icon,title]) => { const I=Icon as typeof Home; return <button key={title as string} type="button" onClick={() => title === "سفارش‌های من" ? go("/panel/orders") : undefined} className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/[.035] p-3 text-right transition hover:bg-white/[.06] sm:p-4"><I size={19} className="text-cyan-200/80"/><p className="mt-2 truncate text-xs text-white/60">{title as string}</p></button>; })}</div>
+      <div className="mt-7 grid grid-cols-2 gap-2.5 sm:mt-8">
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/[.035] p-3 text-right sm:p-4"><Home size={19} className="text-cyan-200/80"/><p className="mt-2 truncate text-xs text-white/60">فعال‌سازی مرحله‌ای</p></div>
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/[.035] p-3 text-right sm:p-4"><CreditCard size={19} className="text-cyan-200/80"/><p className="mt-2 truncate text-xs text-white/60">پرداخت امن</p></div>
+        <Link href="/panel/wallet/transactions" className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/[.035] p-3 text-right transition hover:bg-white/[.06] sm:p-4"><WalletCards size={19} className="text-cyan-200/80"/><p className="mt-2 truncate text-xs text-white/60">تراکنش‌های کیف پول</p></Link>
+        <Link href="/panel/orders" className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/[.035] p-3 text-right transition hover:bg-white/[.06] sm:p-4"><ShoppingBag size={19} className="text-cyan-200/80"/><p className="mt-2 truncate text-xs text-white/60">سفارش‌های من</p></Link>
+      </div>
     </div>
   );
 }
