@@ -138,6 +138,7 @@ export class SmsCodeWebhookEvent {
   @Column({ type: 'timestamptz', nullable: true }) processedAt!: Date | null;
   @Column({ type: 'text', nullable: true }) processingError!: string | null;
   @CreateDateColumn() createdAt!: Date;
+  @UpdateDateColumn() updatedAt!: Date;
 }
 
 @Entity('order_inputs')
@@ -167,7 +168,6 @@ export class PaymentMethod {
   @Column({ length: 40, default: 'CARD_TRANSFER' }) type!: string;
   @Column({ length: 120 }) title!: string;
   @Column({ type: 'varchar', length: 120 }) cardNumber!: string;
-  @Column({ length: 160 }) holderName!: string;
   @Column({ length: 160 }) holderName!: string;
   @Column({ type: 'varchar', length: 120, nullable: true }) bankName!: string | null;
   @Column({ default: true }) active!: boolean;
