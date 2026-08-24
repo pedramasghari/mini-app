@@ -7,6 +7,7 @@ import { Wallet } from '../wallets/entities/wallet.entity';
 import { ActivationProgress, Order, OrderInput, PaymentRequest, Product, Service, SmsCodeOrder, WalletTransaction } from '../commerce/entities/commerce.entity';
 import { AdminController } from './admin.controller';
 import { AdminFinanceController } from './admin-finance.controller';
+import { AdminUsersController } from './admin-users.controller';
 import { AdminGuard } from './admin.guard';
 
 @Module({
@@ -15,7 +16,7 @@ import { AdminGuard } from './admin.guard';
     CommerceModule,
     TypeOrmModule.forFeature([User, Wallet, WalletTransaction, Order, OrderInput, Product, Service, SmsCodeOrder, PaymentRequest, ActivationProgress]),
   ],
-  controllers: [AdminController, AdminFinanceController],
+  controllers: [AdminController, AdminFinanceController, AdminUsersController],
   providers: [AdminGuard],
   exports: [AdminGuard],
 })
