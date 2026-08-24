@@ -54,11 +54,6 @@ export class SmsCodeService implements OnModuleInit {
     await this.ensureAppleUkConfig();
   }
 
-  async getBalance() {
-    const data = await this.request<{ balance: string | number; currency: string }>('/balance');
-    return { balance: String(data.balance), currency: data.currency };
-  }
-
   private async ensureAppleUkConfig() {
     const service = await this.services.findOne({ where: { slug: 'apple-id' } });
     if (!service || await this.configs.findOne({ where: { serviceId: service.id, enabled: true } })) return;
@@ -123,3 +118,131 @@ export class SmsCodeService implements OnModuleInit {
     const product = await this.products.findOne({ where: { id: productId, active: true } }); if (!product) throw new NotFoundException('محصول پیدا نشد.');
     const service = await this.services.findOne({ where: { id: product.serviceId, active: true } }); if (!service) throw new NotFoundException('سرویس پیدا نشد.');
     const config = await this.loadConfig(service.id);
+    const existing = await this.orders.findOne({ where: { userId }, order: { createdAt: 'DESC' } });
+    if (existing && ['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED'].includes(existing.status)) return this.sync(existing);
+    const row = await this.reserveLocalOrder(userId, service.id, product);
+    const payload: Record<string, unknown> = { catalog_product_id: config.catalogProductId, quantity: 1 };
+    if (config.operatorId !== null) payload.operator_id = config.operatorId;
+    if (config.minProviderPrice !== null) payload.min_price = config.minProviderPrice;
+    if (config.maxProviderPrice !== null) payload.max_price = config.maxProviderPrice;
+    if (config.policy) payload.policy = config.policy;
+    if (config.preferredProvider) payload.prefer_provider = config.preferredProvider;
+    try {
+      const data = await this.createProviderWithSameKey(payload, row.idempotencyKey); const provider = data.orders?.[0]; if (!provider) throw new ProviderApiError('EMPTY_RESPONSE', 'SMSCode did not return an order', 502);
+      await this.applyProviderState(row, provider); await this.notifications.create(userId, { type: 'SMS_ORDER_CREATED', title: 'شماره با موفقیت دریافت شد', message: `شماره ${provider.phone_number ?? ''} برای شما فعال شد.`, data: { orderId: row.id, providerOrderId: provider.id, status: provider.status } }); return this.snapshot(row, provider);
+    } catch (error) {
+      if (error instanceof ProviderApiError && this.isDefinitiveNoSideEffect(error.code, error.statusCode)) { await this.refundIfNeeded(row, `PROVIDER_${error.code}`); throw new BadGatewayException(this.publicProviderError(error)); }
+      row.status = 'PROVIDER_PENDING'; row.providerSnapshot = { error: error instanceof Error ? error.message : String(error), pendingSince: new Date().toISOString(), payload }; await this.orders.save(row);
+      throw new ServiceUnavailableException('پاسخ سرویس شماره‌گذاری قطعی دریافت نشد؛ سفارش در حال بررسی است و برای جلوگیری از کسر دوباره، سفارش دیگری ایجاد نمی‌شود.');
+    }
+  }
+
+  private async createProviderWithSameKey(payload: Record<string, unknown>, key: string) {
+    let last: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) { try { return await this.request<{ orders: ProviderOrder[] }>('/orders/create', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(payload) }); } catch (error) { last = error; if (!(error instanceof ProviderApiError) || error.statusCode === 0 || error.statusCode >= 500 || error.code === 'REQUEST_IN_PROGRESS') { await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))); continue; } throw error; } }
+    throw last instanceof Error ? last : new ProviderApiError('NETWORK_ERROR', 'SMSCode request timed out.', 0);
+  }
+  private isDefinitiveNoSideEffect(code: string, status: number) { return ['INSUFFICIENT_BALANCE', 'NO_OFFER_AVAILABLE', 'VALIDATION_ERROR', 'FORBIDDEN', 'UNAUTHORIZED'].includes(code) || (status >= 400 && status < 500 && !['REQUEST_IN_PROGRESS', 'CONFLICT'].includes(code)); }
+  private publicProviderError(error: ProviderApiError) { if (error.code === 'NO_OFFER_AVAILABLE') return 'در حال حاضر شماره‌ای با فیلتر کشور و قیمت انتخاب‌شده موجود نیست.'; if (error.code === 'INSUFFICIENT_BALANCE') return 'موجودی سرویس شماره‌گذاری کافی نیست. لطفاً بعداً دوباره تلاش کنید.'; return error.message; }
+
+  async get(userId: string, localId: string) { const row = await this.getOwned(userId, localId); return row.providerOrderId ? this.sync(row) : { id: row.id, status: row.status, phoneNumber: row.phoneNumber, expiresAt: row.expiresAt?.toISOString() ?? null, canResend: row.canResend, canCancel: row.canCancel, canReplace: row.canReplace, refunded: Boolean(row.refundedAt), chargedAmount: row.chargedAmount, currency: row.currency }; }
+
+  async sync(row: SmsCodeOrder) { if (!row.providerOrderId) return this.get(row.userId, row.id); const provider = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`); return this.applyProviderState(row, provider); }
+
+  async resend(userId: string, localId: string) {
+    const row = await this.getOwned(userId, localId);
+    if (!row.providerOrderId) throw new BadRequestException('سفارش هنوز در سرویس شماره‌گذاری ایجاد نشده است.');
+    const current = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`);
+    if (!current.can_resend) {
+      const availableAt = current.resend_available_at ? ` زمان مجاز بعدی: ${current.resend_available_at}` : '';
+      throw new BadRequestException(`ارسال مجدد پیامک برای این سفارش در حال حاضر مجاز نیست.${availableAt}`);
+    }
+    try {
+      await this.request<{ order_id: number; status: string; resent: boolean }>('/orders/resend', { method: 'POST', body: JSON.stringify({ id: Number(row.providerOrderId) }) });
+      const provider = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`);
+      return this.applyProviderState(row, provider);
+    } catch (error) {
+      if (error instanceof ProviderApiError) {
+        if (error.code === 'NOT_FOUND') throw new NotFoundException('سفارش در سرویس شماره‌گذاری پیدا نشد.');
+        if (error.statusCode === 409 || error.code === 'CONFLICT') throw new ConflictException(error.message);
+        if (error.statusCode >= 400 && error.statusCode < 500) throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  async cancel(userId: string, localId: string) {
+    const row = await this.getOwned(userId, localId);
+    if (!row.providerOrderId) {
+      if (row.status === 'PROVIDER_PENDING' || row.status === 'CREATING') throw new ConflictException('سفارش هنوز در حال ایجاد/بررسی است و فعلاً قابل لغو نیست.');
+      throw new BadRequestException('سفارش شناسه سرویس شماره‌گذاری ندارد.');
+    }
+    const current = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`);
+    if (!current.can_cancel) {
+      const availableAt = current.cancel_available_at ? ` زمان مجاز بعدی: ${current.cancel_available_at}` : '';
+      throw new BadRequestException(`لغو این سفارش در حال حاضر مجاز نیست.${availableAt}`);
+    }
+    try {
+      await this.request<{ order_id: number; status: string; refund_amount: ProviderMoney; new_balance: ProviderMoney }>('/orders/cancel', { method: 'POST', body: JSON.stringify({ id: Number(row.providerOrderId) }) });
+      const provider = await this.request<ProviderOrder>(`/orders/${row.providerOrderId}`);
+      return this.applyProviderState(row, provider);
+    } catch (error) {
+      if (error instanceof ProviderApiError) {
+        if (error.code === 'NOT_FOUND') throw new NotFoundException('سفارش در سرویس شماره‌گذاری پیدا نشد.');
+        if (error.code === 'CANCEL_TOO_EARLY') throw new ConflictException('لغو سفارش تا ۲ دقیقه پس از ایجاد امکان‌پذیر نیست.');
+        if (error.statusCode === 409 || error.code === 'CONFLICT') throw new ConflictException(error.message);
+        if (error.statusCode >= 400 && error.statusCode < 500) throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  private async getOwned(userId: string, localId: string) { const row = await this.orders.findOne({ where: { id: localId, userId } }); if (!row) throw new NotFoundException('سفارش شماره پیدا نشد.'); return row; }
+
+  async refundIfNeeded(row: SmsCodeOrder, reason: string) {
+    if (row.refundedAt) return;
+    await this.dataSource.transaction(async manager => {
+      const locked = await manager.findOne(SmsCodeOrder, { where: { id: row.id }, lock: { mode: 'pessimistic_write' } }); if (!locked || locked.refundedAt) return;
+      const wallet = await manager.findOne(Wallet, { where: { userId: locked.userId }, lock: { mode: 'pessimistic_write' } }); if (!wallet) throw new NotFoundException('کیف پول برای بازگشت وجه پیدا نشد.');
+      if (wallet.currency !== locked.currency) throw new BadRequestException('واحد پول کیف پول با سفارش یکسان نیست.');
+      const before = Number(wallet.balance), amount = Number(locked.chargedAmount); wallet.balance = (before + amount).toFixed(8); locked.refundedAt = new Date(); locked.refundedAmount = locked.chargedAmount; locked.refundReason = reason;
+      await manager.save(wallet); await manager.save(locked); await manager.save(WalletTransaction, manager.create(WalletTransaction, { userId: locked.userId, walletId: wallet.id, type: 'SMSCODE_ORDER_REFUND', amount: amount.toFixed(8), balanceBefore: before.toFixed(8), balanceAfter: wallet.balance, currency: wallet.currency, referenceType: 'SMSCODE_ORDER_REFUND', referenceId: locked.id, description: `بازگشت وجه سفارش شماره: ${reason}` }));
+    });
+    await this.notifications.create(row.userId, { type: 'SMS_ORDER_REFUNDED', title: 'وجه سفارش برگشت داده شد', message: `مبلغ ${row.chargedAmount} ${row.currency} بابت لغو/انقضای شماره به کیف پول شما برگشت داده شد.`, data: { orderId: row.id, amount: row.chargedAmount, currency: row.currency, reason } });
+  }
+
+  async handleWebhook(rawBody: Buffer, signature: string | undefined, payload: ProviderWebhook) {
+    if (!this.webhookSecret) { const current = await this.request<{ webhook_url: string; webhook_secret?: string }>('/webhook'); this.webhookSecret = current.webhook_secret ?? ''; }
+    if (!this.webhookSecret || !signature) throw new BadRequestException('Webhook signature is missing.');
+    const expected = createHmac('sha256', this.webhookSecret).update(rawBody).digest('hex'); const received = signature.replace(/^sha256=/i, '').trim(); const a = Buffer.from(expected, 'hex'), b = Buffer.from(received, 'hex');
+    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new BadRequestException('Webhook signature is invalid.');
+    const event = payload.event, providerOrderId = Number(payload.data?.order_id); if (!event || !Number.isInteger(providerOrderId)) throw new BadRequestException('Webhook payload is invalid.');
+    const revision = Number(payload.data?.sms_revision ?? 0), eventKey = `${event}:${providerOrderId}:${event === 'order.otp_received' ? revision : 0}`;
+    try {
+      await this.webhookEvents.save(this.webhookEvents.create({ eventKey, event, providerOrderId: String(providerOrderId), payload, processedAt: null, processingError: null }));
+    } catch (error) {
+      if (error instanceof QueryFailedError && (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code === '23505') return { ok: true, duplicate: true };
+      throw error;
+    }
+    const row = await this.orders.findOne({ where: { providerOrderId: String(providerOrderId) } }); if (!row) return { ok: true, ignored: true };
+    if (event === 'order.otp_received') {
+      if (revision >= row.smsRevision) { row.status = 'OTP_RECEIVED'; row.phoneNumber = payload.data?.phone_number ?? row.phoneNumber; row.smsRevision = revision; row.providerSnapshot = { ...(row.providerSnapshot ?? {}), webhook: payload.data }; await this.orders.save(row); await this.notifications.create(row.userId, { type: 'SMS_ORDER_OTP_RECEIVED', title: 'کد تأیید دریافت شد', message: payload.data?.otp_code ? `کد تأیید شما: ${payload.data.otp_code}` : 'پیامک تأیید دریافت شد؛ کد شناسایی‌شده‌ای در پیام وجود نداشت.', data: { orderId: row.id, providerOrderId, phoneNumber: row.phoneNumber, otpCode: payload.data?.otp_code ?? null, otpMessage: payload.data?.otp_message ?? null, smsRevision: revision } }); }
+    } else if (event === 'order.completed') {
+      if (!['CANCELED', 'EXPIRED'].includes(row.status)) row.status = 'COMPLETED'; await this.orders.save(row); await this.notifications.create(row.userId, { type: 'SMS_ORDER_COMPLETED', title: 'سفارش شماره تکمیل شد', message: 'سفارش شماره شما با موفقیت تکمیل شد.', data: { orderId: row.id, providerOrderId } });
+    } else if (event === 'order.expired' || event === 'order.canceled') {
+      row.status = event === 'order.expired' ? 'EXPIRED' : 'CANCELED'; await this.orders.save(row); await this.refundIfNeeded(row, event === 'order.expired' ? 'PROVIDER_EXPIRED' : 'PROVIDER_CANCELED'); await this.notifications.create(row.userId, { type: event === 'order.expired' ? 'SMS_ORDER_EXPIRED' : 'SMS_ORDER_CANCELED', title: event === 'order.expired' ? 'سفارش منقضی شد' : 'سفارش لغو شد', message: 'مبلغ سفارش طبق وضعیت سرویس شماره‌گذاری به کیف پول شما بازگردانده شد.', data: { orderId: row.id, providerOrderId, refunded: true } });
+    }
+    await this.webhookEvents.update({ eventKey }, { processedAt: new Date() }); return { ok: true };
+  }
+
+  async catalogCountries() { return this.request<unknown[]>('/catalog/countries'); }
+  async catalogServices(countryId?: number) { return this.request<unknown[]>(`/catalog/services${countryId ? `?country_id=${countryId}` : ''}`); }
+  async catalogOperators(countryId: number, platformId: number) { return this.request<unknown[]>(`/catalog/operators?country_id=${countryId}&platform_id=${platformId}`); }
+  async catalogProducts(params: { countryId?: number; platformId?: number; operatorId?: number; sort?: string; page?: number; limit?: number }) { const query = new URLSearchParams(); if (params.countryId) query.set('country_id', String(params.countryId)); if (params.platformId) query.set('platform_id', String(params.platformId)); if (params.operatorId !== undefined) query.set('operator_id', String(params.operatorId)); query.set('sort', params.sort ?? 'price_asc'); query.set('page', String(params.page ?? 1)); query.set('limit', String(Math.min(params.limit ?? 100, 1000))); return this.request<unknown>(`/catalog/products?${query.toString()}`); }
+  async getServiceConfig(serviceId: string) { await this.services.findOneOrFail({ where: { id: serviceId } }); return this.configs.findOne({ where: { serviceId } }); }
+  async saveServiceConfig(serviceId: string, input: Partial<ServiceSmsConfig>) { const service = await this.services.findOne({ where: { id: serviceId } }); if (!service) throw new NotFoundException('سرویس پیدا نشد.'); if (input.minProviderPrice !== undefined && input.minProviderPrice !== null && Number(input.minProviderPrice) < 0) throw new BadRequestException('حداقل قیمت معتبر نیست.'); if (input.maxProviderPrice !== undefined && input.maxProviderPrice !== null && Number(input.maxProviderPrice) < 0) throw new BadRequestException('حداکثر قیمت معتبر نیست.'); if (input.minProviderPrice != null && input.maxProviderPrice != null && Number(input.minProviderPrice) > Number(input.maxProviderPrice)) throw new BadRequestException('حداقل قیمت نمی‌تواند بیشتر از حداکثر قیمت باشد.'); let row = await this.configs.findOne({ where: { serviceId } }); if (!row) row = this.configs.create({ serviceId }); Object.assign(row, input); return this.configs.save(row); }
+  async configureWebhook(url?: string) { const target = url ?? this.webhookUrl; if (!target) throw new BadRequestException('SMSCODE_WEBHOOK_URL تنظیم نشده است.'); if (!/^https:\/\//i.test(target)) throw new BadRequestException('آدرس Webhook باید HTTPS باشد.'); const data = await this.request<{ webhook_url: string; webhook_secret?: string }>('/webhook', { method: 'PATCH', body: JSON.stringify({ webhook_url: target }) }); if (data.webhook_secret) this.webhookSecret = data.webhook_secret; return { webhookUrl: data.webhook_url, configured: true, secretConfigured: Boolean(this.webhookSecret), webhookSecret: data.webhook_secret ?? undefined }; }
+  async webhookStatus() { const data = await this.request<{ webhook_url: string; webhook_secret?: string }>('/webhook'); if (data.webhook_secret) this.webhookSecret = data.webhook_secret; return { webhookUrl: data.webhook_url, secretConfigured: Boolean(this.webhookSecret) }; }
+
+  private async reconcilePending() { if (!this.token) return; const pending = await this.orders.find({ where: { status: 'PROVIDER_PENDING' }, order: { createdAt: 'ASC' }, take: 10 }); for (const row of pending) { if (Date.now() - row.createdAt.getTime() > 10 * 60_000) continue; const payload = (row.providerSnapshot?.payload ?? {}) as Record<string, unknown>; try { const data = await this.createProviderWithSameKey(payload, row.idempotencyKey); const provider = data.orders?.[0]; if (provider) await this.applyProviderState(row, provider); } catch (error) { if (error instanceof ProviderApiError && this.isDefinitiveNoSideEffect(error.code, error.statusCode)) await this.refundIfNeeded(row, `RECONCILE_${error.code}`); } } }
+}
