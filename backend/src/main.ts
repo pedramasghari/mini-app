@@ -13,6 +13,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
 
   mkdirSync(join(process.cwd(), 'uploads', 'guides'), { recursive: true });
+  mkdirSync(join(process.cwd(), 'uploads', 'withdrawals'), { recursive: true });
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
   app.use(cookieParser());
 
