@@ -8,6 +8,7 @@ import { CommerceModule } from './commerce/commerce.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminBotModule } from './admin-bot/admin-bot.module';
 import { AdminModule } from './admin/admin.module';
+import { SupportChatModule } from './support-chat/support-chat.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { AdminModule } from './admin/admin.module';
     CommerceModule,
     AdminBotModule,
     AdminModule,
+    SupportChatModule,
   ],
 })
 export class AppModule {}
