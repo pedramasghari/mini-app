@@ -2,14 +2,11 @@
 
 import Link from "next/link";
 import { usePanel } from "@/context/PanelContext";
-import DepositModal from "./DepositModal";
-import { useAppStore } from "@/context/useApp";
 import PanelView from "./panelView";
 import { AnimatePresence, motion } from "framer-motion";
 
 export default function PanelShell() {
   const { me } = usePanel();
-  const { activeTab } = useAppStore();
 
   if (!me)
     return (
@@ -20,12 +17,6 @@ export default function PanelShell() {
         در حال بارگذاری…
       </main>
     );
-
-  const views: Record<string, React.ReactNode> = {
-    home: <PanelView me={me} />,
-    deposit: <DepositModal />,
-    withdraw: <></>,
-  };
 
   return (
     <main
@@ -45,16 +36,13 @@ export default function PanelShell() {
 
       <AnimatePresence mode="wait">
         <motion.div
-          key={activeTab}
           initial={{ opacity: 0, y: 0, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -10, scale: 0.98 }}
           transition={{ duration: 0.2 }}
           className="relative inset-0 h-full w-full overflow-hidden"
         >
-          {views[activeTab] || (
-            <div className="p-4 text-white">در حال ساخت...</div>
-          )}
+          <PanelView me={me} />,
         </motion.div>
       </AnimatePresence>
     </main>

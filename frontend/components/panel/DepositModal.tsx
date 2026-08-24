@@ -3,11 +3,9 @@
 import { useMemo, useState } from "react";
 import { api, fa } from "@/lib/api";
 import { usePanel } from "@/context/PanelContext";
-import { useAppStore } from "@/context/useApp";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import {  ArrowRight } from "lucide-react";
 
 export default function DepositModal() {
-  const { activeTab, setActiveTab } = useAppStore();
   const { methods, refresh } = usePanel();
   const cards = useMemo(
     () => methods.filter((m) => m.type === "CARD_TRANSFER"),
@@ -20,7 +18,6 @@ export default function DepositModal() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  if (!activeTab || activeTab !== 'deposit') return null;
 
   const numeric = Number(amount.replace(/[^0-9.]/g, ""));
   const validAmount = Number.isFinite(numeric) && numeric > 0;
@@ -48,7 +45,7 @@ export default function DepositModal() {
       setBusy(false);
     }
   }
-
+const go = (path: string) => { window.location.href = path; };
   return (
     <div className="mx-auto w-full max-w-2xl px-3 pb-24  sm:px-5 ">
         <div className="w-full rounded-[32px] border border-white/10 bg-[#111827] p-5 text-white shadow-2xl">
@@ -60,7 +57,7 @@ export default function DepositModal() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => setActiveTab("home")}
+              onClick={() => go("/panel")}
               className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 text-xl"
             >
               <ArrowRight size={18} />
@@ -218,7 +215,7 @@ export default function DepositModal() {
                 تا ۳۰ دقیقه شارژ می‌شود.
               </p>
               <button
-                onClick={() => setActiveTab("home")}
+                onClick={() => go("/panel")}
                 className="mt-6 w-full rounded-2xl bg-white px-4 py-4 text-sm font-bold text-black"
               >
                 متوجه شدم
