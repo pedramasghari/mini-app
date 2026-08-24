@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
-    'banana-fred-refers-stuart.trycloudflare.com',
+    'enhanced-forward-compromise-hudson.trycloudflare.com',
   ],
   rewrites: async () => [
     {
