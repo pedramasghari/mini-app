@@ -22,7 +22,7 @@ export default function Header() {
 
   const go = (path: string) => { window.location.href = path; };
   const onDeposit = () => { setActiveTab("deposit"); go("/panel"); };
-  const onWithdraw = () => { setActiveTab("withdraw"); go("/panel"); };
+  const onWithdraw = () => {go("/panel/wallet/withdrawals"); };
   const onTransactions = () => { go("/panel/wallet/transactions"); };
   const onLogout = () => go("/logout");
   const { user, wallet } = me;
