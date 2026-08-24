@@ -39,7 +39,10 @@ type SmsSnapshot = {
   refunded: boolean;
 };
 type ActiveNumberOrder = {
+  /** Durable NumberOrder id. */
   id: string;
+  /** Underlying SmsCodeOrder id. Required by SmsCodeProvider actions. */
+  smsOrderId: string;
   orderNumber: string;
   status: NumberOrderStatus;
   productId: string;
@@ -78,7 +81,6 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     this.timer = setInterval(() => void this.syncOpenOrders(), 5_000);
     this.timer.unref?.();
-    void this.syncOpenOrders();
   }
 
   onModuleDestroy() {
@@ -86,88 +88,46 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
   }
 
   private orderNumber() {
-    const stamp = new Date()
-      .toISOString()
-      .replace(/[-:TZ.]/g, '')
-      .slice(2, 14);
+    const time = Date.now().toString(36).toUpperCase();
     const random = Math.random().toString(36).slice(2, 8).toUpperCase();
-    return `NO${stamp}${random}`;
+    return `NO-${time}-${random}`;
   }
 
-  private async getOtpHistory(
-    row: SmsCodeOrder,
-    snapshot?: SmsSnapshot,
-  ): Promise<NumberOrderOtp[]> {
-    if (!row.providerOrderId) return [];
+  private async getOtpHistory(row: SmsCodeOrder, snapshot: SmsSnapshot) {
     const events = await this.webhookEvents.find({
-      where: { providerOrderId: String(row.providerOrderId) },
+      where: { smsCodeOrderId: row.id },
       order: { createdAt: 'ASC' },
     });
+
     const result: NumberOrderOtp[] = [];
     const seen = new Set<string>();
-    const add = (
-      code: unknown,
-      message: unknown,
-      revision: unknown,
-      receivedAt: Date | string,
-    ) => {
-      const normalizedCode =
-        typeof code === 'string' && code.trim() ? code.trim() : null;
-      const normalizedMessage =
-        typeof message === 'string' && message.trim() ? message.trim() : null;
-      if (!normalizedCode && !normalizedMessage) return;
-      const rev = Number(revision ?? 0);
-      const key = `${rev}:${normalizedCode ?? ''}:${normalizedMessage ?? ''}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      result.push({
-        code: normalizedCode,
-        message: normalizedMessage,
-        revision: Number.isFinite(rev) ? rev : 0,
-        receivedAt: new Date(receivedAt).toISOString(),
-      });
-    };
+
     for (const event of events) {
-      const payload = event.payload as {
-        data?: {
-          otp_code?: unknown;
-          otp_message?: unknown;
-          sms_revision?: unknown;
-        };
-      } | null;
-      if (
-        event.event === 'order.otp_received' ||
-        payload?.data?.otp_code ||
-        payload?.data?.otp_message
-      )
-        add(
-          payload?.data?.otp_code,
-          payload?.data?.otp_message,
-          payload?.data?.sms_revision,
-          event.createdAt,
-        );
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+      const data = (payload.data ?? payload) as Record<string, unknown>;
+      const code = String(
+        data.code ?? data.otp ?? data.verification_code ?? '',
+      ).trim();
+      if (!code || seen.has(code)) continue;
+      seen.add(code);
+      result.push({
+        code,
+        message: typeof data.message === 'string' ? data.message : null,
+        revision: result.length + 1,
+        receivedAt: event.createdAt,
+      });
     }
-    if (snapshot?.otpCode || snapshot?.otpMessage)
-      add(
-        snapshot.otpCode,
-        snapshot.otpMessage,
-        snapshot.smsRevision,
-        new Date(),
-      );
-    const providerWebhook = row.providerSnapshot?.webhook as
-      | { otp_code?: unknown; otp_message?: unknown; sms_revision?: unknown }
-      | undefined;
-    if (providerWebhook?.otp_code || providerWebhook?.otp_message)
-      add(
-        providerWebhook.otp_code,
-        providerWebhook.otp_message,
-        providerWebhook.sms_revision,
-        new Date(),
-      );
-    return result.sort(
-      (a, b) =>
-        new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime(),
-    );
+
+    if (snapshot.otpCode && !seen.has(snapshot.otpCode)) {
+      result.push({
+        code: snapshot.otpCode,
+        message: snapshot.otpMessage ?? null,
+        revision: result.length + 1,
+        receivedAt: new Date(),
+      });
+    }
+
+    return result;
   }
 
   private deriveStatus(
@@ -175,22 +135,17 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
     snapshot: SmsSnapshot,
     otpCodes: NumberOrderOtp[],
   ): NumberOrderStatus {
-    const providerStatus = String(snapshot.status ?? row.status).toUpperCase();
-    if (providerStatus === 'CANCELED' || providerStatus === 'CANCELLED')
-      return 'CANCEL';
-    const hasCode = otpCodes.length > 0;
-    const expired = Boolean(
-      snapshot.expiresAt &&
-      new Date(snapshot.expiresAt).getTime() <= Date.now(),
-    );
-    if (hasCode && (providerStatus === 'COMPLETED' || expired))
-      return 'SUCCESS';
-    if (providerStatus === 'EXPIRED') return 'EXPIRED';
-    if (hasCode || providerStatus === 'OTP_RECEIVED') return 'VERIFY';
+    if (['CANCELED', 'CANCELLED'].includes(snapshot.status)) return 'CANCEL';
+    if (snapshot.status === 'EXPIRED') {
+      return otpCodes.length ? 'SUCCESS' : 'EXPIRED';
+    }
+    if (otpCodes.length || snapshot.otpCode) return 'VERIFY';
+    if (['COMPLETED', 'SUCCESS'].includes(snapshot.status)) return 'SUCCESS';
+    if (row.status === 'EXPIRED') return otpCodes.length ? 'SUCCESS' : 'EXPIRED';
     return 'IN_PROCESS';
   }
 
-  private async createOrUpdate(
+  async createOrUpdate(
     row: SmsCodeOrder,
     snapshot: SmsSnapshot,
   ): Promise<NumberOrder | null> {
@@ -353,9 +308,7 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      if (!smsRow) {
-        continue;
-      }
+      if (!smsRow) continue;
 
       const sms = (await this.smsCode.get(
         userId,
@@ -363,43 +316,26 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
       )) as SmsSnapshot;
 
       const current = await this.createOrUpdate(smsRow, sms);
-
-      // createOrUpdate ممکن است null برگرداند
-      if (!current) {
-        continue;
-      }
-
-      // ممکن است در همین sync وضعیت از ACTIVE/VERIFY
-      // به SUCCESS/EXPIRED/CANCEL تغییر کرده باشد.
-      if (current.status !== 'IN_PROCESS' && current.status !== 'VERIFY') {
-        continue;
-      }
+      if (!current) continue;
+      if (current.status !== 'IN_PROCESS' && current.status !== 'VERIFY') continue;
 
       result.push({
         id: current.id,
+        smsOrderId: order.smsCodeOrderId,
         orderNumber: current.orderNumber,
         status: current.status,
         productId: current.productId,
         phoneNumber: current.phoneNumber,
-
         expiresAt: current.metadata?.expiresAt ?? null,
-
         otpCode: current.metadata?.lastOtpCode ?? sms.otpCode ?? null,
-
         otpMessage: current.metadata?.lastOtpMessage ?? sms.otpMessage ?? null,
-
         smsRevision: current.metadata?.smsRevision ?? sms.smsRevision ?? 0,
-
         canResend: sms.canResend,
         canCancel: sms.canCancel,
         canReplace: sms.canReplace,
-
         resendAvailableAt: sms.resendAvailableAt ?? null,
-
         cancelAvailableAt: sms.cancelAvailableAt ?? null,
-
         replaceAvailableAt: sms.replaceAvailableAt ?? null,
-
         chargedAmount: current.amount,
         currency: current.currency,
         refunded: sms.refunded,
