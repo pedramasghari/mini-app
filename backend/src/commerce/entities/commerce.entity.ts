@@ -18,7 +18,6 @@ export class Service {
   @UpdateDateColumn() updatedAt!: Date;
 }
 
-/** Provider routing is configured per service so each service can use a different country/price policy. */
 @Entity('service_sms_configs')
 @Index('uq_service_sms_config', ['serviceId'], { unique: true })
 export class ServiceSmsConfig {
@@ -136,6 +135,7 @@ export class SmsCodeWebhookEvent {
   @Column({ length: 80 }) event!: string;
   @Column({ type: 'bigint' }) providerOrderId!: string;
   @Column({ type: 'jsonb', default: {} }) payload!: Record<string, unknown>;
+  @Column({ type: 'jsonb', default: {} }) payload!: Record<string, unknown>;
   @Column({ type: 'timestamptz', nullable: true }) processedAt!: Date | null;
   @Column({ type: 'text', nullable: true }) processingError!: string | null;
   @CreateDateColumn() createdAt!: Date;
@@ -179,12 +179,30 @@ export class PaymentMethod {
 @Index('uq_one_pending_deposit_per_user', ['userId'], { unique: true, where: '\"status\" = \'PENDING\'' })
 export class PaymentRequest {
   @PrimaryGeneratedColumn('uuid') id!: string;
-  @Column('uuid') userId!: string;
+  @Index() @Column('uuid') userId!: string;
+  @Column('uuid', { nullable: true }) orderId!: string | null;
+  @Column('uuid') paymentMethodId!: string;
   @Column({ type: 'decimal', precision: 30, scale: 8 }) amount!: string;
-  @Column({ length: 10 }) currency!: string;
+  @Column({ length: 10, default: 'IRT' }) currency!: string;
   @Column({ length: 30, default: 'PENDING' }) status!: string;
-  @Column({ type: 'varchar', length: 1000, nullable: true }) proofUrl!: string | null;
-  @Column({ type: 'text', nullable: true }) adminNote!: string | null;
+  @Column({ type: 'text', nullable: true }) receiptPath!: string | null;
+  @Column({ type: 'text', nullable: true }) adminReason!: string | null;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
+}
+
+@Entity('wallet_transactions')
+export class WalletTransaction {
+  @PrimaryGeneratedColumn('uuid') id!: string;
+  @Index() @Column('uuid') userId!: string;
+  @Index() @Column('uuid') walletId!: string;
+  @Column({ length: 40 }) type!: string;
+  @Column({ type: 'decimal', precision: 30, scale: 8 }) amount!: string;
+  @Column({ type: 'decimal', precision: 30, scale: 8 }) balanceBefore!: string;
+  @Column({ type: 'decimal', precision: 30, scale: 8 }) balanceAfter!: string;
+  @Column({ length: 10, default: 'IRT' }) currency!: string;
+  @Column({ type: 'varchar', length: 120, nullable: true }) referenceType!: string | null;
+  @Column({ type: 'varchar', length: 120, nullable: true }) referenceId!: string | null;
+  @Column({ type: 'text', nullable: true }) description!: string | null;
+  @CreateDateColumn() createdAt!: Date;
 }
