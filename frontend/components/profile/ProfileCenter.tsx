@@ -91,7 +91,7 @@ export default function ProfileCenter({ user, realtime, open, onOpenChange, onLo
 
           <div className="flex flex-col mt-2 space-y-1">
             <button type="button" role="menuitem" onClick={() => go('/panel/orders')} className="  m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><ClipboardList size={17} /><span>سفارشات</span></button>    
-            <button type="button" role="menuitem" onClick={() => go('/panel/profile')} className=" m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><UserRound size={17} /><span> پروفایل من</span></button>
+            <button type="button" role="menuitem" onClick={() => go('/panel/wallet/requests')} className=" m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><UserRound size={17} /><span> درخواست های کیف پول</span></button>
             <button type="button" role="menuitem" onClick={() => go('/panel/support')} className="  m-2 p-2 flex gap-2 items-center justify-content cursor-pointer"><Headphones size={17} /><span> پشتیبانی</span></button>
           </div>
 
