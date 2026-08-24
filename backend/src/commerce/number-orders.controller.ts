@@ -29,43 +29,7 @@ export class NumberOrdersController {
 
   @Get('me')
   async mine(@Req() req: Request) {
-    const userId = await this.userId(req);
-    const orders = await this.numberOrders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 100 });
-    const result = [] as Array<NumberOrder & {
-      product: { id: string; title: string; icon: string; currency: string } | null;
-      otpCodes: NonNullable<NumberOrder['metadata']>['otpCodes'];
-      transactions: WalletTransaction[];
-    }>;
-
-    for (const order of orders) {
-      const product = await this.products.findOne({ where: { id: order.productId } });
-      const legacy = await this.transactions.find({
-        where: [
-          { userId, referenceType: 'SMSCODE_ORDER', referenceId: order.smsCodeOrderId },
-          { userId, referenceType: 'SMSCODE_ORDER_REFUND', referenceId: order.smsCodeOrderId },
-        ],
-        order: { createdAt: 'DESC' },
-      });
-      const current = await this.transactions.find({ where: { userId, referenceType: 'NUMBER_ORDER', referenceId: order.id }, order: { createdAt: 'DESC' } });
-
-      for (const transaction of legacy) {
-        transaction.referenceType = 'NUMBER_ORDER';
-        transaction.referenceId = order.id;
-        await this.transactions.save(transaction);
-      }
-
-      const transactions = [...current, ...legacy]
-        .filter((transaction, index, all) => all.findIndex(item => item.id === transaction.id) === index)
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-      result.push({
-        ...order,
-        product: product ? { id: product.id, title: product.title, icon: product.icon, currency: product.currency } : null,
-        otpCodes: order.metadata?.otpCodes ?? [],
-        transactions,
-      });
-    }
-    return result;
+    return this.orders.listMyOrders(await this.userId(req));
   }
 
   @Get('active')
@@ -73,19 +37,37 @@ export class NumberOrdersController {
     return this.orders.listActive(await this.userId(req));
   }
 
-  /** Canonical cancellation endpoint used by every SmsOrderCard. */
+  /** Resolve and cancel by the actual phone number shown to the user. */
+  @Post('by-phone/:phoneNumber/cancel')
+  async cancelByPhone(@Req() req: Request, @Param('phoneNumber') phoneNumber: string) {
+    const userId = await this.userId(req);
+    const decodedPhone = decodeURIComponent(phoneNumber);
+    const numberOrder = await this.orders.ensureForPhone(userId, decodedPhone);
+    return this.cancelResolvedOrder(userId, numberOrder);
+  }
+
+  /** Backward-compatible endpoint: accepts either SmsCodeOrder id or NumberOrder id. */
   @Post('by-sms/:smsOrderId/cancel')
   async cancelBySms(@Req() req: Request, @Param('smsOrderId') smsOrderId: string) {
     const userId = await this.userId(req);
 
-    // Materialize NumberOrder BEFORE SmsCodeService creates the refund.
-    // This lets refundIfNeeded attach the refund directly to NumberOrder.
-    const numberOrder = await this.orders.ensureForSmsOrder(userId, smsOrderId);
-    if (!numberOrder) throw new NotFoundException('سفارش شماره پیدا نشد.');
+    let numberOrder: NumberOrder;
+    const byNumberOrderId = await this.numberOrders.findOne({ where: { id: smsOrderId, userId } });
+    if (byNumberOrderId) {
+      numberOrder = byNumberOrderId;
+    } else {
+      const resolved = await this.orders.ensureForSmsOrder(userId, smsOrderId);
+      if (!resolved) throw new NotFoundException('سفارش شماره پیدا نشد.');
+      numberOrder = resolved;
+    }
 
+    return this.cancelResolvedOrder(userId, numberOrder);
+  }
+
+  private async cancelResolvedOrder(userId: string, numberOrder: NumberOrder) {
+    const smsOrderId = numberOrder.smsCodeOrderId;
     const cancelled = await this.smsCode.cancel(userId, smsOrderId);
 
-    // Include both old purchase/refund references and the canonical NumberOrder reference.
     const linked = await this.transactions.find({
       where: [
         { userId, referenceType: 'SMSCODE_ORDER', referenceId: smsOrderId },
@@ -108,6 +90,7 @@ export class NumberOrdersController {
       ...cancelled,
       orderNumber: numberOrder.orderNumber,
       numberOrderId: numberOrder.id,
+      phoneNumber: numberOrder.phoneNumber,
       transactions: linked,
       numberOrder: finalOrder,
     };
