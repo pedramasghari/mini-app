@@ -1,9 +1,9 @@
 import { Controller, Get, NotFoundException, Param, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service';
-import { Product, WalletTransaction } from './entities/commerce.entity';
+import { Product, ServiceSmsConfig, WalletTransaction } from './entities/commerce.entity';
 import { NumberOrder } from './entities/number-order.entity';
 import { NumberOrdersService } from './number-orders.service';
 import { SmsCodeService } from './smscode.service';
@@ -18,6 +18,7 @@ export class NumberOrdersController {
     private readonly smsCode: SmsCodeService,
     @InjectRepository(NumberOrder) private readonly numberOrders: Repository<NumberOrder>,
     @InjectRepository(Product) private readonly products: Repository<Product>,
+    @InjectRepository(ServiceSmsConfig) private readonly smsConfigs: Repository<ServiceSmsConfig>,
     @InjectRepository(WalletTransaction) private readonly transactions: Repository<WalletTransaction>,
   ) {}
 
@@ -34,7 +35,28 @@ export class NumberOrdersController {
 
   @Get('active')
   async active(@Req() req: Request) {
-    return this.orders.listActive(await this.userId(req));
+    const userId = await this.userId(req);
+    const active = await this.orders.listActive(userId);
+    if (!active.length) return active;
+
+    const rows = await this.numberOrders.find({
+      where: { userId, id: In(active.map((item) => item.id)) },
+    });
+    const serviceIds = [...new Set(rows.map((row) => row.serviceId).filter((id): id is string => Boolean(id)))];
+    const configs = serviceIds.length
+      ? await this.smsConfigs.find({ where: { serviceId: In(serviceIds) } })
+      : [];
+    const configByService = new Map(configs.map((config) => [config.serviceId, config] as const));
+
+    return active.map((item) => {
+      const row = rows.find((candidate) => candidate.id === item.id);
+      const config = row?.serviceId ? configByService.get(row.serviceId) : undefined;
+      return {
+        ...item,
+        countryCode: config?.countryCode ?? null,
+        countryName: config?.countryName ?? null,
+      };
+    });
   }
 
   /** Resolve and cancel by the actual phone number shown to the user. */
