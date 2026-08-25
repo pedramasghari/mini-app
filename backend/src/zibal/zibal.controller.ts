@@ -27,14 +27,13 @@ export class ZibalController {
   }
 
   /**
-   * Zibal calls this endpoint from the browser after payment.
-   * The gateway callback is NOT a Mini App page. We verify the payment on the
-   * backend first, then redirect the browser to the configured Mini App URL.
+   * Zibal callback is only a notification containing trackId.
+   * Never trust success/status/orderId/amount values supplied by the browser.
+   * The backend verifies the payment directly against Zibal before settling it.
    */
   @Get('callback')
   async callback(
     @Query('trackId') trackId: string,
-    @Query('orderId') orderId: string | undefined,
     @Res() response: Response,
   ) {
     let status: RedirectStatus = 'pending';
@@ -42,12 +41,14 @@ export class ZibalController {
 
     try {
       if (!trackId) throw new BadRequestException('trackId الزامی است.');
-      const result = await this.zibal.callback(trackId, orderId);
+      const result = await this.zibal.callback(trackId);
       paymentId = result.payment?.id;
-      status = result.success ? 'success' : (result.payment?.status === 'PENDING' ? 'pending' : 'failed');
+      status = result.success
+        ? 'success'
+        : (result.payment?.status === 'PENDING' ? 'pending' : 'failed');
     } catch {
-      // A callback/network/verification error must not turn a possibly paid
-      // transaction into a hard failure. The reconciliation job can verify it.
+      // Verification/network errors remain pending. The reconciliation job
+      // will verify the same trackId again instead of declaring the payment failed.
       status = 'pending';
     }
 
