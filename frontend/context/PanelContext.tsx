@@ -26,6 +26,7 @@ export function PanelProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [realtime, setRealtime] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
   const connectedOnce = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -36,22 +37,35 @@ export function PanelProvider({ children }: { children: React.ReactNode }) {
       api<Method[]>('payment-methods'),
       api<Notification[]>('notifications'),
     ]);
+
     setMe(m);
     setServices(s);
     setProducts(p);
     setMethods(pm);
     setNotifications(n);
+    setAuthenticated(true);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    refresh().catch(console.error).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
+
+    refresh()
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setAuthenticated(false);
+          console.error(error);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
     return () => { cancelled = true; };
   }, [refresh]);
 
   useEffect(() => {
+    if (!authenticated) return;
+
     let es: EventSource | undefined;
     let retryTimer: number | undefined;
     let disposed = false;
@@ -65,9 +79,7 @@ export function PanelProvider({ children }: { children: React.ReactNode }) {
       es.onopen = () => {
         setRealtime(true);
         retryDelay = 1000;
-        if (connectedOnce.current) {
-          refresh().catch(() => undefined);
-        }
+        if (connectedOnce.current) refresh().catch(() => undefined);
         connectedOnce.current = true;
       };
 
@@ -78,19 +90,21 @@ export function PanelProvider({ children }: { children: React.ReactNode }) {
             notification?: Notification;
             wallet?: { balance: string; currency: string };
           };
+
           if (payload.type === 'notification' && payload.notification) {
             setNotifications((current) => [
               payload.notification!,
               ...current.filter((item) => item.id !== payload.notification!.id),
             ].slice(0, 50));
           }
+
           if (payload.type === 'wallet.updated' && payload.wallet) {
             setMe((current) => current?.wallet
               ? { ...current, wallet: { ...current.wallet, balance: String(payload.wallet!.balance), currency: payload.wallet!.currency } }
               : current);
           }
         } catch {
-          // رویداد نامعتبر نادیده گرفته می‌شود.
+          // Ignore malformed SSE payloads.
         }
       };
 
@@ -105,20 +119,25 @@ export function PanelProvider({ children }: { children: React.ReactNode }) {
     };
 
     connect();
+
     return () => {
       disposed = true;
       if (retryTimer) window.clearTimeout(retryTimer);
       es?.close();
       setRealtime(false);
     };
-  }, [refresh]);
+  }, [authenticated, refresh]);
 
   const markRead = useCallback(async (id: string) => {
     await api(`notifications/${id}/read`, { method: 'POST' });
     setNotifications((current) => current.map((item) => item.id === id ? { ...item, read: true } : item));
   }, []);
 
-  const value = useMemo(() => ({ me, services, products, methods, notifications, loading, realtime, refresh, markRead }), [me, services, products, methods, notifications, loading, realtime, refresh, markRead]);
+  const value = useMemo(
+    () => ({ me, services, products, methods, notifications, loading, realtime, refresh, markRead }),
+    [me, services, products, methods, notifications, loading, realtime, refresh, markRead],
+  );
+
   return <PanelContext.Provider value={value}>{children}</PanelContext.Provider>;
 }
 
