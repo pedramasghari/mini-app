@@ -1,10 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Bot, Context, InlineKeyboard } from 'grammy';
-import { HttpsProxyAgent } from 'https-proxy-agent';
-
-const proxyUrl = process.env.TELEGRAM_PROXY_URL ?? 'http://127.0.0.1:2080';
-const agent = new HttpsProxyAgent(proxyUrl);
 
 @Injectable()
 export class AdminBotRuntimeService implements OnModuleInit, OnModuleDestroy {
@@ -15,14 +11,7 @@ export class AdminBotRuntimeService implements OnModuleInit, OnModuleDestroy {
 
   constructor(private readonly config: ConfigService) {
     const token = this.token();
-    this.bot = new Bot<Context>(token || '000000:disabled', {
-      client: {
-        baseFetchConfig: {
-          agent,
-          compress: true,
-        },
-      },
-    });
+    this.bot = new Bot<Context>(token || '000000:disabled');
 
     this.bot.on('message', async (ctx) => {
       const appUrl = this.appUrl();
@@ -51,7 +40,6 @@ export class AdminBotRuntimeService implements OnModuleInit, OnModuleDestroy {
       await this.bot.api.deleteWebhook({ drop_pending_updates: false });
       const me = await this.bot.api.getMe();
       this.logger.log(`Telegram bot connected: @${me.username}`);
-      this.logger.log(`Telegram proxy: ${proxyUrl}`);
 
       this.running = true;
       this.startPromise = this.bot.start({

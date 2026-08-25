@@ -20,8 +20,8 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./backend/Dockerfile
     container_name: mini-app-backend
     restart: unless-stopped
     env_file:
@@ -29,17 +29,43 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
+
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-miniapp}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-miniapp_password}
-      DATABASE_NAME: ${POSTGRES_DB:-miniapp}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_NAME: miniapp
+
+      TELEGRAM_BOT_TOKEN: "8997481007:AAG1QZaafYi3e7RpYU2TuEFlhZgz8-xlQvo"
+
+      FRONTEND_URL: "http://localhost"
+
+      ADMIN_BOT_TOKEN: "8997481007:AAG1QZaafYi3e7RpYU2TuEFlhZgz8-xlQvo"
+      ADMIN_TELEGRAM_IDS: "1194031410"
+
+      MINI_APP_URL: "t.me/diceGameGamble_bot/IDto"
+
+      SMSCODE_API_VERSION: "v2"
+      SMSCODE_API_TOKEN: "c3c0f40974a4b4f1f908a48e155c091d3190dba0877ce5ee086a6caeab514f3a"
+      SMSCODE_APPLE_CATALOG_PRODUCT_ID: "0"
+      SMSCODE_APPLE_MAX_PRICE_USD: "0.03"
+
+      SMSCODE_WEBHOOK_URL: "https://version-athletic-administrator-eleven.trycloudflare.com/webhooks/smscode"
+
+      ZIBAL_ENABLED: "true"
+      ZIBAL_MERCHANT: "zibal"
+      ZIBAL_CALLBACK_URL: "https://t.me/diceGameGamble_bot/IDto"
+
+      ZIBAL_MIN_DEPOSIT_IRT: "1000"
+      ZIBAL_MAX_DEPOSIT_IRT: "50000000"
+
+      ZIBAL_TIMEOUT_MS: "15000"
+
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ./uploads:/app/uploads
+      - ./backend/uploads:/app/uploads
     expose:
       - "4000"
     networks:
@@ -47,8 +73,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./frontend/Dockerfile
       args:
         BACKEND_URL: ${BACKEND_URL:-http://backend:4000}
     container_name: mini-app-frontend

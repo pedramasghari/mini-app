@@ -1,30 +1,37 @@
-FROM node:22-alpine AS build
+# syntax=docker/dockerfile:1.7
+
+FROM node:20-alpine AS deps
+
 WORKDIR /app
 
-ARG BACKEND_URL=http://backend:4000
-ENV BACKEND_URL=$BACKEND_URL
+COPY frontend/package*.json ./
 
-COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm config set registry https://registry.npmjs.org/
+RUN --mount=type=cache,target=/root/.npm npm ci
 
-COPY . .
-RUN npm run build
+FROM node:20-alpine AS builder
 
-FROM node:22-alpine AS production
 WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY frontend ./
 
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV BACKEND_URL=http://backend:4000
+RUN npm run build
 
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/package-lock.json ./package-lock.json
-RUN npm ci --omit=dev
+FROM node:20-alpine AS runner
 
-COPY --from=build /app/.next ./.next
-COPY --from=build /app/public ./public
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["node", "server.js"]

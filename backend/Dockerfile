@@ -1,33 +1,81 @@
-FROM node:22-alpine AS build
+# syntax=docker/dockerfile:1.7
+
+# =========================
+# Base
+# =========================
+FROM node:20-bookworm-slim AS base
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        make \
+        g++ \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Enable exact pnpm version
+RUN corepack enable && \
+    corepack prepare pnpm@10.8.1 --activate
+
+RUN node --version && \
+    pnpm --version
+
 WORKDIR /app
 
-RUN corepack enable
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm config set registry https://registry.npmjs.org/
-RUN pnpm config set fetch-retries 5
-RUN pnpm config set fetch-retry-factor 2
-RUN pnpm config set fetch-retry-mintimeout 10000
-RUN pnpm config set fetch-retry-maxtimeout 120000
+
+# =========================
+# Dependencies
+# =========================
+FROM base AS deps
+
+COPY backend/package.json backend/pnpm-lock.yaml ./
 
 RUN pnpm install --frozen-lockfile
 
-COPY . .
+
+# =========================
+# Build
+# =========================
+FROM base AS builder
+
+COPY --from=deps /app/node_modules ./node_modules
+
+COPY backend/package.json ./
+COPY backend/pnpm-lock.yaml ./
+COPY backend/ ./
+
 RUN pnpm build
 
-FROM node:22-alpine AS production
-WORKDIR /app
+
+# =========================
+# Production dependencies
+# =========================
+FROM base AS prod-deps
+
+COPY backend/package.json backend/pnpm-lock.yaml ./
+
+RUN pnpm install --frozen-lockfile --prod
+
+
+# =========================
+# Production runner
+# =========================
+FROM node:20-bookworm-slim AS runner
 
 ENV NODE_ENV=production
 ENV PORT=4000
 
-RUN corepack enable
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod
+WORKDIR /app
 
-COPY --from=build /app/dist ./dist
+RUN mkdir -p /app/data /app/uploads
 
-# The runtime uploads directory is mounted from the host by docker-compose.
-RUN mkdir -p /app/uploads
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 4000
 
