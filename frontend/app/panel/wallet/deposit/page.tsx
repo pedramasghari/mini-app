@@ -1,3 +1,3 @@
 
 import DepositModal from "@/components/panel/DepositModal";
-export default function DepositPage(){return (<></>)}
+export default function DepositPage(){return (<DepositModal/>)}

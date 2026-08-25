@@ -7,10 +7,9 @@ import { CreditCard, Home, ShoppingBag, WalletCards } from "lucide-react";
 import { fa } from "@/lib/api";
 import ServiceCatalogV2 from "./ServiceCatalogV2";
 import ActiveNumberOrders from "./ActiveNumberOrders";
-import { useAppStore } from "@/context/useApp";
 
 export default function PanelView({ me }: { me: Me }) {
-  const { setActiveTab } = useAppStore();
+  const go = (path: string) => { window.location.href = path; };
   const { user, wallet } = me;
   const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || "کاربر تلگرام";
 
@@ -23,7 +22,7 @@ export default function PanelView({ me }: { me: Me }) {
         </div>
       </section>
 
-      <div className="mt-3"><button type="button" onClick={() => setActiveTab("deposit")} className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[.045] p-3 text-right transition hover:bg-white/[.07]"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-cyan-300/10 text-cyan-200"><WalletCards size={21}/></span><span className="min-w-0 flex-1"><span className="block text-xs text-white/40">موجودی کیف پول</span><span className="mt-1 block truncate text-lg font-black">{fa(wallet?.balance ?? 0)} <small className="text-xs font-medium text-white/40">تومان</small></span></span><span className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-black">شارژ</span></button></div>
+      <div className="mt-3"><button type="button" onClick={() => go("/panel/wallet/deposit")} className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[.045] p-3 text-right transition hover:bg-white/[.07]"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-cyan-300/10 text-cyan-200"><WalletCards size={21}/></span><span className="min-w-0 flex-1"><span className="block text-xs text-white/40">موجودی کیف پول</span><span className="mt-1 block truncate text-lg font-black">{fa(wallet?.balance ?? 0)} <small className="text-xs font-medium text-white/40">تومان</small></span></span><span className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-black">شارژ</span></button></div>
 
       <ActiveNumberOrders />
 

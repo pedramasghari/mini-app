@@ -7,12 +7,10 @@ import { usePanel } from "@/context/PanelContext";
 import NotificationCenter from "../panel/NotificationCenter";
 import { WalletCenter } from "../wallet/walletcenter";
 import ProfileCenter from "../profile/ProfileCenter";
-import { useAppStore } from "@/context/useApp";
-import { Headphones, ShoppingBag } from "lucide-react";
+import { ShoppingBag } from "lucide-react";
 
 export default function Header() {
   const pathname = usePathname();
-  const { activeTab, setActiveTab } = useAppStore();
   const { me, realtime } = usePanel();
   const [activeMenu, setActiveMenu] = useState<"wallet" | "notifications" | "profile" | null>(null);
 
@@ -21,7 +19,7 @@ export default function Header() {
   if (!me) return null;
 
   const go = (path: string) => { window.location.href = path; };
-  const onDeposit = () => { setActiveTab("deposit"); go("/panel"); };
+  const onDeposit = () => { go("/panel/wallet/deposit"); };
   const onWithdraw = () => {go("/panel/wallet/withdrawals"); };
   const onTransactions = () => { go("/panel/wallet/transactions"); };
   const onLogout = () => go("/logout");
@@ -30,7 +28,7 @@ export default function Header() {
 
   return (
     <header dir="rtl" className="sticky top-0 z-50 -mx-3 mb-4 flex min-w-0 items-center justify-between gap-2 border-b border-white/5 bg-[#070b14]/90 px-3 py-3 backdrop-blur-xl sm:-mx-5 sm:px-5">
-      <Link href="/panel" onClick={() => setActiveTab("home")} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-[#333] p-2 hover:bg-white/10">
+      <Link href="/panel" className="flex min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-[#333] p-2 hover:bg-white/10">
         <ShoppingBag size={20} className="text-white" />
         <p className="truncate text-lg font-bold text-white">فروشگاه</p>
       </Link>

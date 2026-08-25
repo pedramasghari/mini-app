@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
-    'nurse-transport-approaches-combo.trycloudflare.com',
+    '*.trycloudflare.com',
   ],
   rewrites: async () => [
     {
