@@ -4,10 +4,13 @@ import { Repository } from 'typeorm';
 import { AdminGuard } from './admin.guard';
 import { User } from '../users/entities/user.entity';
 import { Order, Product, Service, SmsCodeOrder } from '../commerce/entities/commerce.entity';
+import { NumberOrder } from '../commerce/entities/number-order.entity';
 import { SmsCodeService } from '../commerce/smscode.service';
 import { NumberOrdersService } from '../commerce/number-orders.service';
 
 const ACTIVE_SMS = ['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED'];
+
+type NumberOrderDetail = Awaited<ReturnType<NumberOrdersService['listMyOrders']>>[number];
 
 @Controller('admin/orders')
 @UseGuards(AdminGuard)
@@ -16,6 +19,7 @@ export class AdminOrdersController {
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(Order) private readonly orders: Repository<Order>,
     @InjectRepository(SmsCodeOrder) private readonly smsOrders: Repository<SmsCodeOrder>,
+    @InjectRepository(NumberOrder) private readonly numberOrderRows: Repository<NumberOrder>,
     @InjectRepository(Product) private readonly products: Repository<Product>,
     @InjectRepository(Service) private readonly services: Repository<Service>,
     private readonly smsCode: SmsCodeService,
@@ -62,7 +66,9 @@ export class AdminOrdersController {
   @Get(':orderId')
   async detail(@Param('orderId') orderId: string, @Query('kind') kind?: string) {
     if (kind === 'NUMBER_ORDER') {
-      const numberOrder = await this.numberOrdersFromAllUsers(orderId);
+      const row = await this.numberOrderRows.findOne({ where: { id: orderId } });
+      if (!row) return { found: false };
+      const numberOrder = await this.findNumberOrderProjection(row.userId, row.id);
       if (!numberOrder) return { found: false };
       return this.numberOrderDetail(numberOrder);
     }
@@ -71,12 +77,10 @@ export class AdminOrdersController {
       const order = await this.smsOrders.findOne({ where: { id: orderId } });
       if (!order) return { found: false };
 
-      // A NumberOrder is the canonical order shown to customers at /number-orders/me.
-      // Reuse the exact same listMyOrders projection for admin details whenever this
-      // SMSCode order has a linked NumberOrder.
-      const numberOrder = (await this.numberOrders.listMyOrders(order.userId)).find(
-        (item) => item.smsCodeOrderId === order.id,
-      );
+      // NumberOrder is the canonical customer-facing order representation.
+      // When a linked NumberOrder exists, use the same listMyOrders projection
+      // that /number-orders/me uses so admin sees the exact same data.
+      const numberOrder = await this.findNumberOrderProjection(order.userId, undefined, order.id);
       if (numberOrder) return this.numberOrderDetail(numberOrder);
 
       const [user, product, service] = await Promise.all([
@@ -101,16 +105,12 @@ export class AdminOrdersController {
     return { found: true, kind: 'ORDER', order, product, service, user };
   }
 
-  private async numberOrdersFromAllUsers(orderId: string) {
-    const users = await this.users.find({ select: ['id'] });
-    for (const user of users) {
-      const order = (await this.numberOrders.listMyOrders(user.id)).find((item) => item.id === orderId);
-      if (order) return order;
-    }
-    return null;
+  private async findNumberOrderProjection(userId: string, numberOrderId?: string, smsCodeOrderId?: string) {
+    const orders = await this.numberOrders.listMyOrders(userId);
+    return orders.find((order) => (numberOrderId ? order.id === numberOrderId : order.smsCodeOrderId === smsCodeOrderId)) ?? null;
   }
 
-  private async numberOrderDetail(numberOrder: Awaited<ReturnType<NumberOrdersService['listMyOrders']>>[number]) {
+  private async numberOrderDetail(numberOrder: NumberOrderDetail) {
     const [user, service] = await Promise.all([
       this.users.findOne({ where: { id: numberOrder.userId } }),
       this.services.findOne({ where: { id: numberOrder.serviceId } }),
