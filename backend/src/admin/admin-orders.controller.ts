@@ -5,6 +5,7 @@ import { AdminGuard } from './admin.guard';
 import { User } from '../users/entities/user.entity';
 import { Order, Product, Service, SmsCodeOrder } from '../commerce/entities/commerce.entity';
 import { SmsCodeService } from '../commerce/smscode.service';
+import { NumberOrdersService } from '../commerce/number-orders.service';
 
 const ACTIVE_SMS = ['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED'];
 
@@ -18,6 +19,7 @@ export class AdminOrdersController {
     @InjectRepository(Product) private readonly products: Repository<Product>,
     @InjectRepository(Service) private readonly services: Repository<Service>,
     private readonly smsCode: SmsCodeService,
+    private readonly numberOrders: NumberOrdersService,
   ) {}
 
   @Get()
@@ -59,9 +61,24 @@ export class AdminOrdersController {
 
   @Get(':orderId')
   async detail(@Param('orderId') orderId: string, @Query('kind') kind?: string) {
+    if (kind === 'NUMBER_ORDER') {
+      const numberOrder = await this.numberOrdersFromAllUsers(orderId);
+      if (!numberOrder) return { found: false };
+      return this.numberOrderDetail(numberOrder);
+    }
+
     if (kind === 'SMSCODE') {
       const order = await this.smsOrders.findOne({ where: { id: orderId } });
       if (!order) return { found: false };
+
+      // A NumberOrder is the canonical order shown to customers at /number-orders/me.
+      // Reuse the exact same listMyOrders projection for admin details whenever this
+      // SMSCode order has a linked NumberOrder.
+      const numberOrder = (await this.numberOrders.listMyOrders(order.userId)).find(
+        (item) => item.smsCodeOrderId === order.id,
+      );
+      if (numberOrder) return this.numberOrderDetail(numberOrder);
+
       const [user, product, service] = await Promise.all([
         this.users.findOne({ where: { id: order.userId } }),
         order.productId ? this.products.findOne({ where: { id: order.productId } }) : null,
@@ -73,10 +90,41 @@ export class AdminOrdersController {
       }
       return { found: true, kind: 'SMSCODE', order, product, service, user, sms: sms ?? order };
     }
+
     const order = await this.orders.findOne({ where: { id: orderId } });
     if (!order) return { found: false };
-    const [user, product] = await Promise.all([this.users.findOne({ where: { id: order.userId } }), this.products.findOne({ where: { id: order.productId } })]);
+    const [user, product] = await Promise.all([
+      this.users.findOne({ where: { id: order.userId } }),
+      this.products.findOne({ where: { id: order.productId } }),
+    ]);
     const service = product ? await this.services.findOne({ where: { id: product.serviceId } }) : null;
     return { found: true, kind: 'ORDER', order, product, service, user };
+  }
+
+  private async numberOrdersFromAllUsers(orderId: string) {
+    const users = await this.users.find({ select: ['id'] });
+    for (const user of users) {
+      const order = (await this.numberOrders.listMyOrders(user.id)).find((item) => item.id === orderId);
+      if (order) return order;
+    }
+    return null;
+  }
+
+  private async numberOrderDetail(numberOrder: Awaited<ReturnType<NumberOrdersService['listMyOrders']>>[number]) {
+    const [user, service] = await Promise.all([
+      this.users.findOne({ where: { id: numberOrder.userId } }),
+      this.services.findOne({ where: { id: numberOrder.serviceId } }),
+    ]);
+    return {
+      found: true,
+      kind: 'NUMBER_ORDER',
+      order: numberOrder,
+      numberOrder,
+      product: numberOrder.product,
+      service,
+      user,
+      otpCodes: numberOrder.otpCodes,
+      transactions: numberOrder.transactions,
+    };
   }
 }
