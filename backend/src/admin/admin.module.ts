@@ -6,6 +6,7 @@ import { WithdrawalsModule } from '../withdrawals/withdrawals.module';
 import { User } from '../users/entities/user.entity';
 import { Wallet } from '../wallets/entities/wallet.entity';
 import { ActivationProgress, Order, OrderInput, PaymentRequest, Product, Service, SmsCodeOrder, WalletTransaction } from '../commerce/entities/commerce.entity';
+import { NumberOrder } from '../commerce/entities/number-order.entity';
 import { WithdrawalRequest } from '../withdrawals/entities/withdrawal-request.entity';
 import { AdminController } from './admin.controller';
 import { AdminFinanceController } from './admin-finance.controller';
@@ -19,7 +20,7 @@ import { AdminGuard } from './admin.guard';
     AuthModule,
     CommerceModule,
     WithdrawalsModule,
-    TypeOrmModule.forFeature([User, Wallet, WalletTransaction, Order, OrderInput, Product, Service, SmsCodeOrder, PaymentRequest, ActivationProgress, WithdrawalRequest]),
+    TypeOrmModule.forFeature([User, Wallet, WalletTransaction, Order, OrderInput, Product, Service, SmsCodeOrder, NumberOrder, PaymentRequest, ActivationProgress, WithdrawalRequest]),
   ],
   controllers: [AdminController, AdminFinanceController, AdminUsersController, AdminOrdersController, AdminWithdrawalsController],
   providers: [AdminGuard],
