@@ -8,25 +8,40 @@ import { ArrowRight } from 'lucide-react';
 
 type ZibalConfig = { enabled: boolean; minAmount: string; maxAmount: string; currency: string };
 type PaymentMode = 'ONLINE' | 'CARD';
-type PaymentResult = 'success' | 'failed' | 'pending';
-type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED';
+type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
 
-type TelegramWebApp = {
-  openLink?: (url: string) => void;
+type Payment = {
+  id: string;
+  ticketId: string;
+  paymentUrl: string;
+  trackId: string;
+  amount: string;
+  currency: string;
+  expiresAt: string;
 };
 
-type TelegramWindow = Window & {
-  Telegram?: { WebApp?: TelegramWebApp };
+type StatusResponse = {
+  id: string;
+  ticketId: string;
+  status: PaymentStatus;
+  amount: string;
+  currency: string;
+  expiresAt: string | null;
 };
 
-const ACTIVE_PAYMENT_KEY = 'miniapp:zibal:active-payment';
+const clearPaymentQuery = () => {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('ticketId');
+  url.searchParams.delete('payment');
+  url.searchParams.delete('paymentId');
+  window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
+};
 
 export default function DepositModal() {
   const { methods, refresh } = usePanel();
   const searchParams = useSearchParams();
+  const ticketId = searchParams.get('ticketId');
   const cards = useMemo(() => methods.filter((m) => m.type === 'CARD_TRANSFER'), [methods]);
-  const queryPaymentResult = searchParams.get('payment') as PaymentResult | null;
-  const queryPaymentId = searchParams.get('paymentId');
 
   const [mode, setMode] = useState<PaymentMode>('ONLINE');
   const [selected, setSelected] = useState('');
@@ -36,44 +51,19 @@ export default function DepositModal() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [zibal, setZibal] = useState<ZibalConfig | null>(null);
-  const [activePaymentId, setActivePaymentId] = useState<string | null>(null);
-  const [activePaymentStatus, setActivePaymentStatus] = useState<PaymentStatus | null>(null);
-  const [result, setResult] = useState<PaymentResult | null>(queryPaymentResult);
-  const [resultPaymentId, setResultPaymentId] = useState<string | null>(queryPaymentId);
+  const [status, setStatus] = useState<StatusResponse | null>(null);
 
   useEffect(() => {
     api<ZibalConfig>('zibal/config').then(setZibal).catch(() => setZibal(null));
   }, []);
 
-  // The callback is only a compatibility/fallback path. If it reaches the Mini App,
-  // show its result and refresh the wallet. Normal payments are resolved by polling.
+  // The ticketId is the payment-status page identifier. The Mini App stays on
+  // this page while the Zibal gateway is opened in the user's external browser.
   useEffect(() => {
-    if (!queryPaymentResult) return;
-    setResult(queryPaymentResult);
-    setResultPaymentId(queryPaymentId);
-    void refresh();
-
-    const cleanUrl = new URL(window.location.href);
-    cleanUrl.searchParams.delete('payment');
-    cleanUrl.searchParams.delete('paymentId');
-    window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
-  }, [queryPaymentResult, queryPaymentId, refresh]);
-
-  // Recover a payment if the Mini App was refreshed while Zibal was open.
-  useEffect(() => {
-    if (queryPaymentResult) return;
-    try {
-      const stored = window.localStorage.getItem(ACTIVE_PAYMENT_KEY);
-      if (stored) setActivePaymentId(stored);
-    } catch {
-      // localStorage may be unavailable in restricted WebViews.
+    if (!ticketId) {
+      setStatus(null);
+      return;
     }
-  }, [queryPaymentResult]);
-
-  // Poll the authenticated backend status while the user is paying in Zibal.
-  // The backend itself calls Zibal verify, so the browser never decides success.
-  useEffect(() => {
-    if (!activePaymentId || result) return;
 
     let disposed = false;
     let timer: number | undefined;
@@ -81,28 +71,24 @@ export default function DepositModal() {
     const check = async () => {
       if (disposed) return;
       try {
-        const status = await api<{
-          id: string;
-          status: PaymentStatus;
-          amount: string;
-          currency: string;
-        }>(`zibal/payments/${encodeURIComponent(activePaymentId)}/status`);
-
+        const data = await api<StatusResponse>(
+          `zibal/payments/${encodeURIComponent(ticketId)}/status`,
+        );
         if (disposed) return;
-        setActivePaymentStatus(status.status);
+        setStatus(data);
 
-        if (status.status === 'SUCCESS' || status.status === 'FAILED') {
-          setResult(status.status === 'SUCCESS' ? 'success' : 'failed');
-          setResultPaymentId(status.id);
+        if (data.status === 'SUCCESS') {
           await refresh();
-          try { window.localStorage.removeItem(ACTIVE_PAYMENT_KEY); } catch { /* ignore */ }
+          clearPaymentQuery();
+          return;
+        }
+        if (data.status === 'FAILED' || data.status === 'EXPIRED') {
+          clearPaymentQuery();
           return;
         }
       } catch {
-        // Keep polling. Temporary network/auth/gateway errors must not turn a
-        // potentially successful payment into a failed payment in the UI.
+        // Temporary network/session errors must not mark a payment as failed.
       }
-
       if (!disposed) timer = window.setTimeout(check, 2000);
     };
 
@@ -111,7 +97,7 @@ export default function DepositModal() {
       disposed = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [activePaymentId, result, refresh]);
+  }, [ticketId, refresh]);
 
   const numeric = Number(amount.replace(/[^0-9]/g, ''));
   const min = Number(zibal?.minAmount ?? 0);
@@ -130,28 +116,37 @@ export default function DepositModal() {
       setError(`مبلغ باید بین ${fa(min)} تا ${fa(max)} تومان باشد.`);
       return;
     }
+
     setBusy(true);
     setError('');
     try {
-      const payment = await api<{ id: string; paymentUrl: string }>('zibal/payments', {
+      const payment = await api<Payment>('zibal/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount: String(numeric) }),
       });
 
-      setActivePaymentId(payment.id);
-      setActivePaymentStatus('PENDING');
-      setResult(null);
-      setResultPaymentId(payment.id);
-      try { window.localStorage.setItem(ACTIVE_PAYMENT_KEY, payment.id); } catch { /* ignore */ }
+      // Navigate the Mini App to its own payment-status page first.
+      const url = new URL(window.location.href);
+      url.searchParams.set('ticketId', payment.ticketId);
+      url.searchParams.delete('payment');
+      url.searchParams.delete('paymentId');
+      window.history.pushState({}, document.title, url.pathname + url.search + url.hash);
 
-      // Keep the Telegram Mini App alive. Telegram's WebApp API opens the
-      // gateway externally instead of replacing the Mini App WebView.
-      const telegram = (window as TelegramWindow).Telegram?.WebApp;
-      if (telegram?.openLink) {
-        telegram.openLink(payment.paymentUrl);
-      } else {
-        window.open(payment.paymentUrl, '_blank', 'noopener,noreferrer');
+      setStatus({
+        id: payment.id,
+        ticketId: payment.ticketId,
+        status: 'PENDING',
+        amount: payment.amount,
+        currency: payment.currency,
+        expiresAt: payment.expiresAt,
+      });
+
+      // Open Zibal in a separate browser context. The Mini App itself remains
+      // mounted on /panel/wallet/deposit and continues checking the backend.
+      const opened = window.open(payment.paymentUrl, '_blank', 'noopener,noreferrer');
+      if (!opened) {
+        setError('مرورگر اجازه باز کردن درگاه را نداد. لطفاً دوباره تلاش کنید.');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'ایجاد پرداخت آنلاین انجام نشد.');
@@ -185,30 +180,49 @@ export default function DepositModal() {
 
   const go = (path: string) => { window.location.href = path; };
 
-  if (result === 'success') {
-    return (
-      <div className="mx-auto w-full max-w-2xl px-3 pb-24 sm:px-5">
-        <div className="rounded-[32px] border border-emerald-400/20 bg-[#111827] p-7 text-center text-white shadow-2xl">
-          <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-emerald-400/15 text-4xl text-emerald-300">✓</div>
-          <p className="mt-5 text-xs font-bold text-emerald-300/70">پرداخت زیبال</p>
-          <h2 className="mt-2 text-2xl font-black">شارژ با موفقیت انجام شد</h2>
-          <p className="mt-3 text-sm leading-7 text-white/50">پرداخت توسط سرور تأیید شد و مبلغ به کیف پول شما اضافه شد.</p>
-          {resultPaymentId && <p className="mt-4 text-xs text-white/30" dir="ltr">Payment ID: {resultPaymentId}</p>}
-          <button onClick={() => go('/panel')} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">بازگشت به پنل</button>
+  if (ticketId && status) {
+    if (status.status === 'SUCCESS') {
+      return (
+        <div className="mx-auto w-full max-w-2xl px-3 pb-24 sm:px-5">
+          <div className="rounded-[32px] border border-emerald-400/20 bg-[#111827] p-7 text-center text-white shadow-2xl">
+            <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-emerald-400/15 text-4xl text-emerald-300">✓</div>
+            <p className="mt-5 text-xs font-bold text-emerald-300/70">پرداخت زیبال</p>
+            <h2 className="mt-2 text-2xl font-black">شارژ با موفقیت انجام شد</h2>
+            <p className="mt-3 text-sm leading-7 text-white/50">نتیجه توسط سرور از زیبال تأیید شد و مبلغ به کیف پول شما اضافه شد.</p>
+            <p className="mt-4 text-xs text-white/30" dir="ltr">Ticket ID: {status.ticketId}</p>
+            <button onClick={() => go('/panel')} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">بازگشت به پنل</button>
+          </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  if (result === 'pending' || (activePaymentId && activePaymentStatus === 'PENDING')) {
+    if (status.status === 'FAILED' || status.status === 'EXPIRED') {
+      return (
+        <div className="mx-auto w-full max-w-2xl px-3 pb-24 sm:px-5">
+          <div className="rounded-[32px] border border-red-400/20 bg-[#111827] p-7 text-center text-white shadow-2xl">
+            <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-red-400/10 text-4xl text-red-300">!</div>
+            <p className="mt-5 text-xs font-bold text-red-300/70">پرداخت زیبال</p>
+            <h2 className="mt-2 text-2xl font-black">{status.status === 'EXPIRED' ? 'مهلت پرداخت تمام شد' : 'پرداخت تکمیل نشد'}</h2>
+            <p className="mt-3 text-sm leading-7 text-white/50">وضعیت پرداخت فقط بر اساس بررسی سرور مشخص شده است و اطلاعات ارسالی مرورگر قابل اعتماد نیست.</p>
+            <button onClick={() => go('/panel')} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">بازگشت به پنل</button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="mx-auto w-full max-w-2xl px-3 pb-24 sm:px-5">
         <div className="rounded-[32px] border border-amber-400/20 bg-[#111827] p-7 text-center text-white shadow-2xl">
           <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-amber-400/10 text-4xl text-amber-300">…</div>
           <p className="mt-5 text-xs font-bold text-amber-300/70">پرداخت زیبال</p>
           <h2 className="mt-2 text-2xl font-black">در حال بررسی پرداخت</h2>
-          <p className="mt-3 text-sm leading-7 text-white/50">صفحه پرداخت زیبال در یک پنجره/مرورگر جداگانه باز شده است. نتیجه پرداخت از سرور استعلام می‌شود و به محض تأیید، کیف پول شما به‌روزرسانی خواهد شد.</p>
-          {activePaymentId && <p className="mt-4 text-xs text-white/30" dir="ltr">Payment ID: {activePaymentId}</p>}
+          <p className="mt-3 text-sm leading-7 text-white/50">درگاه زیبال در مرورگر جداگانه باز شده است. شما لازم نیست کاری برای Callback انجام دهید؛ سرور به‌صورت خودکار پرداخت را بررسی می‌کند.</p>
+          <div className="mt-5 rounded-2xl bg-white/[.04] p-4 text-right">
+            <div className="flex justify-between text-sm"><span className="text-white/40">مبلغ</span><strong>{fa(Number(status.amount))} {status.currency}</strong></div>
+            <div className="mt-2 flex justify-between text-sm"><span className="text-white/40">وضعیت</span><strong className="text-amber-300">در حال بررسی</strong></div>
+            <div className="mt-2 flex justify-between text-sm"><span className="text-white/40">Ticket ID</span><span className="font-mono text-xs text-white/40">{status.ticketId}</span></div>
+          </div>
+          <p className="mt-4 text-xs text-white/30">این صفحه هر ۲ ثانیه وضعیت ثبت‌شده در سرور را بررسی می‌کند. Job سرور نیز حداکثر هر یک دقیقه از زیبال Verify می‌گیرد.</p>
           <button onClick={() => { void refresh(); }} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">به‌روزرسانی موجودی</button>
           <button onClick={() => go('/panel')} className="mt-2 w-full rounded-2xl bg-white/5 px-4 py-4 text-sm font-bold text-white/70">بازگشت به پنل</button>
         </div>
@@ -216,14 +230,14 @@ export default function DepositModal() {
     );
   }
 
-  if (result === 'failed') {
+  if (step === 3) {
     return (
       <div className="mx-auto w-full max-w-2xl px-3 pb-24 sm:px-5">
-        <div className="rounded-[32px] border border-red-400/20 bg-[#111827] p-7 text-center text-white shadow-2xl">
-          <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-red-400/10 text-4xl text-red-300">!</div>
-          <h2 className="mt-5 text-2xl font-black">پرداخت تکمیل نشد</h2>
-          <p className="mt-3 text-sm leading-7 text-white/50">پرداخت توسط سرور تأیید نشد. اگر مبلغ از حساب شما کسر شده باشد، بررسی دوره‌ای زیبال همچنان انجام می‌شود.</p>
-          <button onClick={() => { setResult(null); setActivePaymentId(null); setActivePaymentStatus(null); try { window.localStorage.removeItem(ACTIVE_PAYMENT_KEY); } catch { /* ignore */ } }} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">تلاش مجدد</button>
+        <div className="rounded-[32px] border border-emerald-400/20 bg-[#111827] p-7 text-center text-white shadow-2xl">
+          <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-emerald-400/15 text-4xl text-emerald-300">✓</div>
+          <h2 className="mt-5 text-2xl font-black">درخواست شما ثبت شد</h2>
+          <p className="mt-3 text-sm leading-7 text-white/50">پس از بررسی فیش، نتیجه و موجودی کیف پول شما به‌روزرسانی می‌شود.</p>
+          <button onClick={() => go('/panel')} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">بازگشت به پنل</button>
         </div>
       </div>
     );
@@ -234,7 +248,7 @@ export default function DepositModal() {
       <div className="w-full rounded-[32px] border border-white/10 bg-[#111827] p-5 text-white shadow-2xl">
         <div className="flex items-center justify-between">
           <div><p className="text-xs font-bold text-cyan-300/70">کیف پول</p><h2 className="mt-1 text-2xl font-black">شارژ حساب</h2></div>
-          <button type="button" disabled={busy} onClick={() => go('/panel')} className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 text-xl"><ArrowRight size={18} /></button>
+          <button type="button" disabled={busy} onClick={() => go('/panel')} className="grid h-10 w-10 place-items-center rounded-xl bg-white/10"><ArrowRight size={18} /></button>
         </div>
 
         <div className="mt-6 rounded-2xl border border-white/10 bg-white/[.03] p-4">
@@ -250,24 +264,26 @@ export default function DepositModal() {
 
         {mode === 'ONLINE' && (
           <div className="mt-5 rounded-3xl border border-cyan-300/15 bg-cyan-300/[.04] p-5">
-            <div className="flex items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-cyan-300/10 text-2xl">🌐</span><div><h3 className="font-black">پرداخت امن با زیبال</h3><p className="mt-2 text-sm leading-6 text-white/50">درگاه خارج از Mini App باز می‌شود و Mini App باز می‌ماند. نتیجه پرداخت مستقیماً از سرور و API زیبال استعلام می‌شود.</p></div></div>
+            <h3 className="font-black">پرداخت امن با زیبال</h3>
+            <p className="mt-2 text-sm leading-6 text-white/50">پس از ثبت درخواست، همین صفحه به صفحه وضعیت پرداخت تبدیل می‌شود و درگاه زیبال در مرورگر جداگانه باز خواهد شد.</p>
             {error && <p className="mt-4 rounded-xl bg-red-400/10 p-3 text-xs text-red-200">{error}</p>}
-            <button type="button" disabled={busy || !zibal?.enabled || !validAmount} onClick={onlinePayment} className="mt-5 w-full rounded-2xl bg-cyan-300 px-4 py-4 text-sm font-black text-black disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30">{busy ? 'در حال اتصال به درگاه…' : !zibal?.enabled ? 'پرداخت آنلاین غیرفعال است' : `پرداخت ${validAmount ? fa(numeric) : ''} تومان`}</button>
+            <button type="button" disabled={busy || !zibal?.enabled || !validAmount} onClick={onlinePayment} className="mt-5 w-full rounded-2xl bg-cyan-300 px-4 py-4 text-sm font-black text-black disabled:opacity-40">{busy ? 'در حال ایجاد درخواست…' : 'ادامه و پرداخت آنلاین'}</button>
           </div>
         )}
 
-        {mode === 'CARD' && step !== 3 && (
-          <form onSubmit={submitCardTransfer} className="mt-5">
-            <div className="space-y-3">{cards.map((c) => <button type="button" key={c.id} onClick={() => setSelected(c.id)} className={`w-full rounded-2xl border p-4 text-right ${selected === c.id ? 'border-cyan-300/60 bg-cyan-300/10' : 'border-white/10 bg-white/5'}`}><div className="flex items-center justify-between"><b>{c.bankName || 'بانک'}</b><span className="text-xs text-white/40">{selected === c.id ? 'انتخاب شده' : 'انتخاب'}</span></div><p className="mt-3 text-lg font-black tracking-wider" dir="ltr">{c.cardNumber}</p><p className="mt-1 text-xs text-white/45">به نام {c.holderName}</p></button>)}</div>
-            <label className="mt-5 block text-xs font-bold text-white/50">فیش واریزی</label>
-            <input required type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(e) => setReceipt(e.target.files?.[0] ?? null)} className="mt-2 w-full rounded-2xl border border-dashed border-white/15 bg-white/5 p-4 text-xs" />
-            {receipt && <p className="mt-2 truncate text-xs text-emerald-300">✓ {receipt.name}</p>}
-            {error && <p className="mt-3 rounded-xl bg-red-400/10 p-3 text-xs text-red-200">{error}</p>}
-            <button disabled={busy || !receipt || !selected || !validAmount} className="mt-5 w-full rounded-2xl bg-cyan-300 px-4 py-4 text-sm font-black text-black disabled:opacity-30">{busy ? 'در حال ارسال…' : 'ثبت فیش و ارسال برای بررسی'}</button>
+        {mode === 'CARD' && (
+          <form onSubmit={submitCardTransfer} className="mt-5 rounded-3xl border border-white/10 bg-white/[.03] p-5">
+            <label className="block text-xs font-bold text-white/50">روش کارت به کارت</label>
+            <select value={selected} onChange={(e) => setSelected(e.target.value)} className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm">
+              <option value="">انتخاب کنید</option>
+              {cards.map((card) => <option key={card.id} value={card.id}>{card.title}</option>)}
+            </select>
+            <label className="mt-4 block text-xs font-bold text-white/50">فیش واریزی</label>
+            <input type="file" accept="image/*" onChange={(e) => setReceipt(e.target.files?.[0] ?? null)} className="mt-2 block w-full text-sm" />
+            {error && <p className="mt-4 rounded-xl bg-red-400/10 p-3 text-xs text-red-200">{error}</p>}
+            <button disabled={busy} className="mt-5 w-full rounded-2xl bg-cyan-300 px-4 py-4 text-sm font-black text-black disabled:opacity-40">ثبت درخواست شارژ</button>
           </form>
         )}
-
-        {step === 3 && <div className="py-10 text-center"><div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-400/15 text-3xl">✓</div><h3 className="mt-5 text-xl font-black">درخواست ثبت شد</h3><p className="mt-3 text-sm leading-7 text-white/50">فیش شما برای بررسی ارسال شد.</p><button onClick={() => go('/panel')} className="mt-6 w-full rounded-2xl bg-white px-4 py-4 text-sm font-bold text-black">متوجه شدم</button></div>}
       </div>
     </div>
   );
