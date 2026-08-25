@@ -99,14 +99,6 @@ export class NumberOrdersController {
       order: { createdAt: 'ASC' },
     });
 
-    for (const transaction of linked) {
-      if (transaction.referenceType !== 'NUMBER_ORDER' || transaction.referenceId !== numberOrder.id) {
-        transaction.referenceType = 'NUMBER_ORDER';
-        transaction.referenceId = numberOrder.id;
-        await this.transactions.save(transaction);
-      }
-    }
-
     const finalOrder = await this.orders.ensureForSmsOrder(userId, smsOrderId);
     return {
       ...cancelled,
