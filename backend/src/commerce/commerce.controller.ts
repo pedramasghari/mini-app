@@ -11,13 +11,36 @@ import { In, Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CommerceService } from './commerce.service';
-import { SmsCodeOrder } from './entities/commerce.entity';
+import { Product, ServiceSmsConfig, SmsCodeOrder } from './entities/commerce.entity';
 import { SmsCodeService } from './smscode.service';
 
 const COOKIE = 'miniapp_session';
 mkdirSync('./uploads/receipts', { recursive: true });
 function token(req: Request) { return req.cookies?.[COOKIE] as string | undefined; }
 type UploadedReceipt = { path: string };
+
+type SmsOrderCardResponse = {
+  id: string;
+  smsOrderId?: string;
+  orderNumber?: string;
+  status: string;
+  phoneNumber: string | null;
+  countryName: string | null;
+  countryCode: string | null;
+  expiresAt: string | null;
+  canResend: boolean;
+  canCancel: boolean;
+  canReplace: boolean;
+  resendAvailableAt: string | null;
+  cancelAvailableAt: string | null;
+  replaceAvailableAt: string | null;
+  otpCode: string | null;
+  otpMessage: string | null;
+  smsRevision: number;
+  chargedAmount?: string;
+  currency?: string;
+  refunded: boolean;
+};
 
 @Controller()
 export class CommerceController {
@@ -27,11 +50,33 @@ export class CommerceController {
     private readonly notifications: NotificationsService,
     private readonly smsCode: SmsCodeService,
     @InjectRepository(SmsCodeOrder) private readonly smsOrders: Repository<SmsCodeOrder>,
+    @InjectRepository(ServiceSmsConfig) private readonly smsConfigs: Repository<ServiceSmsConfig>,
   ) {}
 
   private async userId(req: Request) {
     const session = await this.auth.getSession(token(req) ?? '');
     return session.user.id;
+  }
+
+  private async smsOrderCardResponse(
+    value: Omit<SmsOrderCardResponse, 'countryName' | 'countryCode'> & { serviceId?: string | null },
+  ): Promise<SmsOrderCardResponse> {
+    const config = value.serviceId
+      ? await this.smsConfigs.findOne({ where: { serviceId: value.serviceId } })
+      : null;
+
+    const { serviceId: _serviceId, ...order } = value;
+    return {
+      ...order,
+      countryCode: config?.countryCode ?? null,
+      countryName: config?.countryName ?? null,
+    };
+  }
+
+  private async enrichSmsOrder(
+    value: SmsOrderCardResponse & { serviceId?: string | null },
+  ): Promise<SmsOrderCardResponse> {
+    return this.smsOrderCardResponse(value);
   }
 
   @Get('services') listServices() { return this.commerce.listServices(); }
@@ -47,7 +92,7 @@ export class CommerceController {
   @Get('transactions/me') async transactions(@Req() req: Request) { return this.commerce.myTransactions(await this.userId(req)); }
   @Get('payment-methods') paymentMethods() { return this.commerce.paymentMethods(); }
 
-  @Post('smscode/orders') async createSmsOrder(@Req() req: Request, @Body('productId') productId: string) {
+  @Post('smscode/orders') async createSmsOrder(@Req() req: Request, @Body('productId') productId: string): Promise<SmsOrderCardResponse> {
     if (!productId) throw new BadRequestException('productId الزامی است.');
     const userId = await this.userId(req);
     const product = await this.commerce.product(productId);
@@ -57,12 +102,17 @@ export class CommerceController {
       where: { userId, serviceId: product.serviceId, status: In(['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED']) },
       order: { createdAt: 'DESC' },
     });
-    if (existing) return this.smsCode.get(userId, existing.id);
+    const result = existing
+      ? await this.smsCode.get(userId, existing.id)
+      : await this.smsCode.create(userId, productId);
 
-    return this.smsCode.create(userId, productId);
+    return this.enrichSmsOrder({
+      ...(result as SmsOrderCardResponse),
+      serviceId: product.serviceId,
+    });
   }
 
-  @Get('smscode/orders/active') async activeSmsOrder(@Req() req: Request, @Query('serviceId') serviceId?: string) {
+  @Get('smscode/orders/active') async activeSmsOrder(@Req() req: Request, @Query('serviceId') serviceId?: string): Promise<SmsOrderCardResponse | null> {
     const userId = await this.userId(req);
     if (!serviceId) throw new BadRequestException('serviceId is required');
     const row = await this.smsOrders.findOne({
@@ -72,14 +122,25 @@ export class CommerceController {
     if (!row) return null;
     try {
       const current = await this.smsCode.get(userId, row.id);
-      return current && ['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED'].includes(current.status) ? current : null;
+      if (!current || !['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED'].includes(current.status)) return null;
+      return this.enrichSmsOrder({
+        ...(current as SmsOrderCardResponse),
+        serviceId: row.serviceId,
+      });
     } catch {
       return null;
     }
   }
 
-  @Get('smscode/orders/:id') async smsOrder(@Req() req: Request, @Param('id') id: string) {
-    return this.smsCode.get(await this.userId(req), id);
+  @Get('smscode/orders/:id') async smsOrder(@Req() req: Request, @Param('id') id: string): Promise<SmsOrderCardResponse> {
+    const userId = await this.userId(req);
+    const row = await this.smsOrders.findOne({ where: { id, userId } });
+    if (!row) throw new BadRequestException('سفارش شماره پیدا نشد.');
+    const result = await this.smsCode.get(userId, id);
+    return this.enrichSmsOrder({
+      ...(result as SmsOrderCardResponse),
+      serviceId: row.serviceId,
+    });
   }
 
   @Post('smscode/orders/:id/resend') async resendSms(@Req() req: Request, @Param('id') id: string) {
