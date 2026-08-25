@@ -145,10 +145,9 @@ export default function DepositModal() {
         {mode === 'CARD' && (
           <form onSubmit={submitCardTransfer} className="mt-5 rounded-3xl border border-white/10 bg-white/[.03] p-5">
             <label className="block text-xs font-bold text-white/50">روش کارت به کارت</label>
-            <select value={selected} onChange={(e) => setSelected(e.target.value)} className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm">
-              <option value="">انتخاب کنید</option>
-              {cards.map((card) => <option key={card.id} value={card.id}>{card.title}</option>)}
-            </select>
+            <div className='flex flex-col w-full gap-2'>
+            {cards.map((card) => <div className='w-full rounded-lg bg-white/30 border border-[#333]' key={card.id} onClick={() => setSelected(card.id)}>{card.cardNumber}</div>)}
+            </div>
             <label className="mt-4 block text-xs font-bold text-white/50">فیش واریزی</label>
             <input type="file" accept="image/*" onChange={(e) => setReceipt(e.target.files?.[0] ?? null)} className="mt-2 block w-full text-sm" />
             {error && <p className="mt-4 rounded-xl bg-red-400/10 p-3 text-xs text-red-200">{error}</p>}

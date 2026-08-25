@@ -38,7 +38,6 @@ export default function ActiveNumberOrders() {
           <div key={order.id} className="shrink-0 snap-start">
             <SmsOrderCard
               order={order}
-              compact
               onChange={(next) => setOrders((current) => current.map((item) => item.id === next.id ? next : item))}
               onRemove={() => setOrders((current) => current.filter((item) => item.id !== order.id))}
             />
