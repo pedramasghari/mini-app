@@ -9,13 +9,25 @@ import { ArrowRight } from 'lucide-react';
 type ZibalConfig = { enabled: boolean; minAmount: string; maxAmount: string; currency: string };
 type PaymentMode = 'ONLINE' | 'CARD';
 type PaymentResult = 'success' | 'failed' | 'pending';
+type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED';
+
+type TelegramWebApp = {
+  openLink?: (url: string) => void;
+};
+
+type TelegramWindow = Window & {
+  Telegram?: { WebApp?: TelegramWebApp };
+};
+
+const ACTIVE_PAYMENT_KEY = 'miniapp:zibal:active-payment';
 
 export default function DepositModal() {
   const { methods, refresh } = usePanel();
   const searchParams = useSearchParams();
   const cards = useMemo(() => methods.filter((m) => m.type === 'CARD_TRANSFER'), [methods]);
-  const paymentResult = searchParams.get('payment') as PaymentResult | null;
-  const paymentId = searchParams.get('paymentId');
+  const queryPaymentResult = searchParams.get('payment') as PaymentResult | null;
+  const queryPaymentId = searchParams.get('paymentId');
+
   const [mode, setMode] = useState<PaymentMode>('ONLINE');
   const [selected, setSelected] = useState('');
   const [amount, setAmount] = useState('');
@@ -24,25 +36,82 @@ export default function DepositModal() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [zibal, setZibal] = useState<ZibalConfig | null>(null);
+  const [activePaymentId, setActivePaymentId] = useState<string | null>(null);
+  const [activePaymentStatus, setActivePaymentStatus] = useState<PaymentStatus | null>(null);
+  const [result, setResult] = useState<PaymentResult | null>(queryPaymentResult);
+  const [resultPaymentId, setResultPaymentId] = useState<string | null>(queryPaymentId);
 
   useEffect(() => {
     api<ZibalConfig>('zibal/config').then(setZibal).catch(() => setZibal(null));
   }, []);
 
+  // The callback is only a compatibility/fallback path. If it reaches the Mini App,
+  // show its result and refresh the wallet. Normal payments are resolved by polling.
   useEffect(() => {
-    if (!paymentResult) return;
-
-    // Refresh the wallet immediately after returning from Zibal. The backend
-    // has already performed verification/settlement before redirecting here.
+    if (!queryPaymentResult) return;
+    setResult(queryPaymentResult);
+    setResultPaymentId(queryPaymentId);
     void refresh();
 
-    // Keep the result UI visible, but remove gateway query parameters from the
-    // address bar so a browser refresh cannot replay the result screen.
     const cleanUrl = new URL(window.location.href);
     cleanUrl.searchParams.delete('payment');
     cleanUrl.searchParams.delete('paymentId');
     window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
-  }, [paymentResult, refresh]);
+  }, [queryPaymentResult, queryPaymentId, refresh]);
+
+  // Recover a payment if the Mini App was refreshed while Zibal was open.
+  useEffect(() => {
+    if (queryPaymentResult) return;
+    try {
+      const stored = window.localStorage.getItem(ACTIVE_PAYMENT_KEY);
+      if (stored) setActivePaymentId(stored);
+    } catch {
+      // localStorage may be unavailable in restricted WebViews.
+    }
+  }, [queryPaymentResult]);
+
+  // Poll the authenticated backend status while the user is paying in Zibal.
+  // The backend itself calls Zibal verify, so the browser never decides success.
+  useEffect(() => {
+    if (!activePaymentId || result) return;
+
+    let disposed = false;
+    let timer: number | undefined;
+
+    const check = async () => {
+      if (disposed) return;
+      try {
+        const status = await api<{
+          id: string;
+          status: PaymentStatus;
+          amount: string;
+          currency: string;
+        }>(`zibal/payments/${encodeURIComponent(activePaymentId)}/status`);
+
+        if (disposed) return;
+        setActivePaymentStatus(status.status);
+
+        if (status.status === 'SUCCESS' || status.status === 'FAILED') {
+          setResult(status.status === 'SUCCESS' ? 'success' : 'failed');
+          setResultPaymentId(status.id);
+          await refresh();
+          try { window.localStorage.removeItem(ACTIVE_PAYMENT_KEY); } catch { /* ignore */ }
+          return;
+        }
+      } catch {
+        // Keep polling. Temporary network/auth/gateway errors must not turn a
+        // potentially successful payment into a failed payment in the UI.
+      }
+
+      if (!disposed) timer = window.setTimeout(check, 2000);
+    };
+
+    void check();
+    return () => {
+      disposed = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [activePaymentId, result, refresh]);
 
   const numeric = Number(amount.replace(/[^0-9]/g, ''));
   const min = Number(zibal?.minAmount ?? 0);
@@ -64,14 +133,29 @@ export default function DepositModal() {
     setBusy(true);
     setError('');
     try {
-      const payment = await api<{ paymentUrl: string }>('zibal/payments', {
+      const payment = await api<{ id: string; paymentUrl: string }>('zibal/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount: String(numeric) }),
       });
-      window.location.assign(payment.paymentUrl);
+
+      setActivePaymentId(payment.id);
+      setActivePaymentStatus('PENDING');
+      setResult(null);
+      setResultPaymentId(payment.id);
+      try { window.localStorage.setItem(ACTIVE_PAYMENT_KEY, payment.id); } catch { /* ignore */ }
+
+      // Keep the Telegram Mini App alive. Telegram's WebApp API opens the
+      // gateway externally instead of replacing the Mini App WebView.
+      const telegram = (window as TelegramWindow).Telegram?.WebApp;
+      if (telegram?.openLink) {
+        telegram.openLink(payment.paymentUrl);
+      } else {
+        window.open(payment.paymentUrl, '_blank', 'noopener,noreferrer');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'ایجاد پرداخت آنلاین انجام نشد.');
+    } finally {
       setBusy(false);
     }
   }
@@ -101,44 +185,45 @@ export default function DepositModal() {
 
   const go = (path: string) => { window.location.href = path; };
 
-  if (paymentResult === 'success') {
+  if (result === 'success') {
     return (
       <div className="mx-auto w-full max-w-2xl px-3 pb-24 sm:px-5">
         <div className="rounded-[32px] border border-emerald-400/20 bg-[#111827] p-7 text-center text-white shadow-2xl">
           <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-emerald-400/15 text-4xl text-emerald-300">✓</div>
           <p className="mt-5 text-xs font-bold text-emerald-300/70">پرداخت زیبال</p>
           <h2 className="mt-2 text-2xl font-black">شارژ با موفقیت انجام شد</h2>
-          <p className="mt-3 text-sm leading-7 text-white/50">پرداخت تأیید شد و مبلغ به‌صورت اتمیک در تراکنش کیف پول ثبت شده است.</p>
-          {paymentId && <p className="mt-4 text-xs text-white/30" dir="ltr">Payment ID: {paymentId}</p>}
+          <p className="mt-3 text-sm leading-7 text-white/50">پرداخت توسط سرور تأیید شد و مبلغ به کیف پول شما اضافه شد.</p>
+          {resultPaymentId && <p className="mt-4 text-xs text-white/30" dir="ltr">Payment ID: {resultPaymentId}</p>}
           <button onClick={() => go('/panel')} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">بازگشت به پنل</button>
         </div>
       </div>
     );
   }
 
-  if (paymentResult === 'pending') {
+  if (result === 'pending' || (activePaymentId && activePaymentStatus === 'PENDING')) {
     return (
       <div className="mx-auto w-full max-w-2xl px-3 pb-24 sm:px-5">
         <div className="rounded-[32px] border border-amber-400/20 bg-[#111827] p-7 text-center text-white shadow-2xl">
           <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-amber-400/10 text-4xl text-amber-300">…</div>
           <p className="mt-5 text-xs font-bold text-amber-300/70">پرداخت زیبال</p>
           <h2 className="mt-2 text-2xl font-black">در حال بررسی پرداخت</h2>
-          <p className="mt-3 text-sm leading-7 text-white/50">نتیجه نهایی هنوز از درگاه دریافت نشده است. سیستم به‌صورت خودکار پرداخت‌های تکمیل‌شده را بررسی می‌کند و در صورت تأیید، کیف پول شما را شارژ خواهد کرد.</p>
-          {paymentId && <p className="mt-4 text-xs text-white/30" dir="ltr">Payment ID: {paymentId}</p>}
-          <button onClick={() => { void refresh(); go('/panel'); }} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">بازگشت به پنل</button>
+          <p className="mt-3 text-sm leading-7 text-white/50">صفحه پرداخت زیبال در یک پنجره/مرورگر جداگانه باز شده است. نتیجه پرداخت از سرور استعلام می‌شود و به محض تأیید، کیف پول شما به‌روزرسانی خواهد شد.</p>
+          {activePaymentId && <p className="mt-4 text-xs text-white/30" dir="ltr">Payment ID: {activePaymentId}</p>}
+          <button onClick={() => { void refresh(); }} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">به‌روزرسانی موجودی</button>
+          <button onClick={() => go('/panel')} className="mt-2 w-full rounded-2xl bg-white/5 px-4 py-4 text-sm font-bold text-white/70">بازگشت به پنل</button>
         </div>
       </div>
     );
   }
 
-  if (paymentResult === 'failed') {
+  if (result === 'failed') {
     return (
       <div className="mx-auto w-full max-w-2xl px-3 pb-24 sm:px-5">
         <div className="rounded-[32px] border border-red-400/20 bg-[#111827] p-7 text-center text-white shadow-2xl">
           <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-red-400/10 text-4xl text-red-300">!</div>
           <h2 className="mt-5 text-2xl font-black">پرداخت تکمیل نشد</h2>
-          <p className="mt-3 text-sm leading-7 text-white/50">پرداخت توسط درگاه تأیید نشد. اگر مبلغ از حساب شما کسر شده باشد، سیستم بررسی دوره‌ای زیبال را انجام می‌دهد و در صورت تأیید، کیف پول شما را شارژ می‌کند.</p>
-          <button onClick={() => go('/panel/wallet/deposit')} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">تلاش مجدد</button>
+          <p className="mt-3 text-sm leading-7 text-white/50">پرداخت توسط سرور تأیید نشد. اگر مبلغ از حساب شما کسر شده باشد، بررسی دوره‌ای زیبال همچنان انجام می‌شود.</p>
+          <button onClick={() => { setResult(null); setActivePaymentId(null); setActivePaymentStatus(null); try { window.localStorage.removeItem(ACTIVE_PAYMENT_KEY); } catch { /* ignore */ } }} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">تلاش مجدد</button>
         </div>
       </div>
     );
@@ -165,7 +250,7 @@ export default function DepositModal() {
 
         {mode === 'ONLINE' && (
           <div className="mt-5 rounded-3xl border border-cyan-300/15 bg-cyan-300/[.04] p-5">
-            <div className="flex items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-cyan-300/10 text-2xl">🌐</span><div><h3 className="font-black">پرداخت امن با زیبال</h3><p className="mt-2 text-sm leading-6 text-white/50">بعد از پرداخت، زیبال شما را به برنامه برمی‌گرداند و تراکنش به‌صورت خودکار بررسی و در صورت موفق بودن به کیف پول اضافه می‌شود.</p></div></div>
+            <div className="flex items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-cyan-300/10 text-2xl">🌐</span><div><h3 className="font-black">پرداخت امن با زیبال</h3><p className="mt-2 text-sm leading-6 text-white/50">درگاه خارج از Mini App باز می‌شود و Mini App باز می‌ماند. نتیجه پرداخت مستقیماً از سرور و API زیبال استعلام می‌شود.</p></div></div>
             {error && <p className="mt-4 rounded-xl bg-red-400/10 p-3 text-xs text-red-200">{error}</p>}
             <button type="button" disabled={busy || !zibal?.enabled || !validAmount} onClick={onlinePayment} className="mt-5 w-full rounded-2xl bg-cyan-300 px-4 py-4 text-sm font-black text-black disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30">{busy ? 'در حال اتصال به درگاه…' : !zibal?.enabled ? 'پرداخت آنلاین غیرفعال است' : `پرداخت ${validAmount ? fa(numeric) : ''} تومان`}</button>
           </div>
