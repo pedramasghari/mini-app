@@ -978,7 +978,6 @@ export class SmsCodeService implements OnModuleInit {
     const data = await this.request<{
       balance:{ amount: string; currency: string; canonical_amount: number; canonical_currency: string } ;
     }>('/balance');
-    console.log('[SMSCode] Balance:', data);
     return {
       balance: String(data.balance.amount),
       currency: data.balance.currency,
