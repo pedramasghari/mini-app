@@ -35,7 +35,7 @@ export default function ServicePage() {
         {!!service.media?.length && <section className="mt-4 space-y-3">
           {service.media.map((media, index) => <div key={`${media.url}-${index}`} className="overflow-hidden rounded-3xl border border-white/10 bg-white/[.035] p-3">
             <h2 className="mb-3 flex items-center gap-2 px-1 text-sm font-bold"><PlayCircle size={18} /> {media.title || 'آموزش سرویس'}</h2>
-            {media.type === 'video' ? <video controls preload="metadata" poster={media.thumbnailUrl} className="w-full rounded-2xl" src={media.url} /> : <img src={media.url} alt={media.title || 'آموزش سرویس'} className="max-h-[28rem] w-full rounded-2xl object-contain" />}
+            {media.type === 'video' ? <video controls preload="metadata" poster={media.thumbnailUrl ?? undefined} className="w-full rounded-2xl" src={media.url} /> : <img src={media.url} alt={media.title || 'آموزش سرویس'} className="max-h-[28rem] w-full rounded-2xl object-contain" />}
           </div>)}
         </section>}
 
