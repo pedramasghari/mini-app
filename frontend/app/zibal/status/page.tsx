@@ -44,23 +44,31 @@ export default function ZibalStatusPage() {
 
   // The query string is intentionally never removed. The user stays on this
   // URL until they explicitly press the back button.
+  
   useEffect(() => {
     if (!ticketId) return;
     let disposed = false;
     let timer: number | undefined;
+    if(payment?.status === 'SUCCESS' || payment?.status === 'FAILED' || payment?.status === 'EXPIRED') {
+      if (timer) window.clearTimeout(timer);
+      return
+    }
 
     const poll = async () => {
       if (disposed) return;
       await checkStatus();
-      if (!disposed) timer = window.setTimeout(poll, 2000);
+
+      if (!disposed) timer = window.setTimeout(poll, 10000);
     };
 
     void poll();
+
+
     return () => {
       disposed = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [ticketId, checkStatus]);
+  }, [ticketId, checkStatus,payment?.status]);
 
   const remaining = useMemo(() => {
     if (!payment?.expiresAt) return null;
@@ -154,7 +162,7 @@ export default function ZibalStatusPage() {
           {error && <p className="mt-4 rounded-2xl bg-red-400/10 p-4 text-xs leading-6 text-red-200">{error}</p>}
 
           <div className="mt-5 flex items-center justify-center gap-2 text-xs text-white/30">
-            {status === 'PENDING' && <><span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" /> بررسی خودکار هر ۲ ثانیه</>}
+            {status === 'PENDING' && <><span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" /> بررسی خودکار هر ۱۰ ثانیه</>}
             {isSuccess && '✓ موجودی کیف پول به‌روزرسانی شد'}
             {isFailed && '× نتیجه نهایی از سرور دریافت شد'}
             {isExpired && '× درخواست منقضی شده است'}

@@ -66,7 +66,6 @@ export default function DepositModal() {
       if (!opened) {
         setError('مرورگر اجازه باز کردن درگاه را نداد. لطفاً اجازه باز شدن پنجره را بدهید و دوباره تلاش کنید.');
         setBusy(false);
-        return;
       }
 
       const statusUrl = `/zibal/status?ticketId=${encodeURIComponent(payment.ticketId)}`;
