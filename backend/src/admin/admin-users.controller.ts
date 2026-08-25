@@ -110,7 +110,8 @@ export class AdminUsersController {
     return { found: true, kind: 'ORDER', user, order, product, service };
   }
 
-  private numberOrderDetail(numberOrder: NumberOrderDetail, user: User) {
+  private async numberOrderDetail(numberOrder: NumberOrderDetail, user: User) {
+    const service = await this.services.findOne({ where: { id: numberOrder.serviceId } });
     return {
       found: true,
       kind: 'NUMBER_ORDER',
@@ -118,7 +119,7 @@ export class AdminUsersController {
       order: numberOrder,
       numberOrder,
       product: numberOrder.product,
-      service: null,
+      service,
       otpCodes: numberOrder.otpCodes,
       transactions: numberOrder.transactions,
     };
