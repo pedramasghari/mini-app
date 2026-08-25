@@ -166,7 +166,6 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     return this.verifyAndSettle(payment.id);
   }
 
-  /** Read-only for the Mini App. The one-minute job performs Zibal verification. */
   async getPaymentStatus(userId: string, paymentId: string) {
     const payment = await this.payments.findOne({ where: { id: paymentId, userId } });
     if (!payment) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
@@ -237,8 +236,6 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       if (locked.status === 'SUCCESS' || locked.status === 'EXPIRED') return { payment: locked, credited: false };
       if (!locked.trackId) throw new BadRequestException('شناسه تراکنش زیبال ثبت نشده است.');
 
-      // A successful gateway response is not sufficient by itself. The amount must
-      // be present and exactly match the amount originally requested from Zibal.
       if (result.amount == null || !/^\d+$/.test(String(result.amount))) {
         locked.status = 'FAILED';
         locked.failureReason = 'مبلغ تاییدشده توسط زیبال دریافت نشد.';
@@ -258,12 +255,25 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       const wallet = await manager.findOne(Wallet, { where: { userId: locked.userId, currency: locked.currency }, lock: { mode: 'pessimistic_write' } });
       if (!wallet) throw new NotFoundException('کیف پول پیدا نشد.');
       const before = wallet.balance;
-      const updateRows = await manager.query(
-        `UPDATE wallets SET balance = balance + CAST($1 AS numeric), "updatedAt" = NOW() WHERE id = $2 RETURNING balance`,
+
+      // TypeORM's Postgres query result shape can differ between driver versions.
+      // Use a plain UPDATE and read the locked row again, avoiding assumptions about
+      // the shape of a raw RETURNING result. The wallet row is already pessimistically
+      // locked, so this remains atomic with the payment settlement transaction.
+      const updateResult = await manager.query(
+        `UPDATE wallets SET balance = balance + CAST($1 AS numeric), "updatedAt" = NOW() WHERE id = $2`,
         [locked.amount, wallet.id],
       );
-      if (!Array.isArray(updateRows) || updateRows.length !== 1) throw new BadRequestException('خطا در به‌روزرسانی موجودی کیف پول.');
-      const after = String(updateRows[0].balance);
+      const affected = typeof updateResult?.rowCount === 'number'
+        ? updateResult.rowCount
+        : Array.isArray(updateResult)
+          ? updateResult.length
+          : 1;
+      if (affected !== 1) throw new BadRequestException('خطا در به‌روزرسانی موجودی کیف پول.');
+
+      const afterWallet = await manager.findOne(Wallet, { where: { id: wallet.id } });
+      if (!afterWallet) throw new NotFoundException('کیف پول پس از شارژ پیدا نشد.');
+      const after = String(afterWallet.balance);
 
       await manager.save(WalletTransaction, manager.create(WalletTransaction, {
         userId: locked.userId,
