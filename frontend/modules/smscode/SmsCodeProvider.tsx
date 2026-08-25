@@ -7,7 +7,7 @@ import type { SmsOrderCardData } from "@/components/service/SmsOrderCard";
 type SmsCodeContextValue = {
   get: (id: string) => Promise<SmsOrderCardData>;
   resend: (id: string) => Promise<SmsOrderCardData>;
-  cancel: (phoneNumber: string) => Promise<SmsOrderCardData>;
+  cancel: (id: string) => Promise<SmsOrderCardData>;
   active: (serviceId: string) => Promise<SmsOrderCardData | null>;
 };
 
@@ -20,10 +20,7 @@ export function SmsCodeProvider({ children }: { children: ReactNode }) {
     [],
   );
   const cancel = useCallback(
-    (phoneNumber: string) =>
-      api<SmsOrderCardData>(`number-orders/by-phone/${encodeURIComponent(phoneNumber)}/cancel`, {
-        method: "POST",
-      }),
+    (id: string) => api<SmsOrderCardData>(`smscode/orders/${id}/cancel`, { method: "POST" }),
     [],
   );
   const active = useCallback(
