@@ -1,0 +1,17 @@
+**/node_modules
+**/dist
+**/.next
+
+.git
+.gitignore
+
+Dockerfile
+docker-compose.yml
+
+*.log
+npm-debug.log
+
+**/coverage
+
+**/uploads
+**/data
