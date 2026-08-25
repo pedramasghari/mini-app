@@ -10,6 +10,7 @@ import { AdminBotModule } from './admin-bot/admin-bot.module';
 import { AdminModule } from './admin/admin.module';
 import { SupportChatModule } from './support-chat/support-chat.module';
 import { WithdrawalsModule } from './withdrawals/withdrawals.module';
+import { ZibalModule } from './zibal/zibal.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { WithdrawalsModule } from './withdrawals/withdrawals.module';
     NotificationsModule,
     CommerceModule,
     WithdrawalsModule,
+    ZibalModule,
     AdminBotModule,
     AdminModule,
     SupportChatModule,
