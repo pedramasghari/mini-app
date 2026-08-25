@@ -4,9 +4,9 @@ services:
     container_name: mini-app-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-miniapp}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-miniapp_password}
-      POSTGRES_DB: ${POSTGRES_DB:-miniapp}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: PedramPostgres12!@
+      POSTGRES_DB: miniapp
     volumes:
       - mini_app_postgres:/var/lib/postgresql/data
     networks:
@@ -33,28 +33,28 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
-      DATABASE_PASSWORD: postgres
+      DATABASE_PASSWORD: PedramPostgres12!@
       DATABASE_NAME: miniapp
 
-      TELEGRAM_BOT_TOKEN: "8997481007:AAG1QZaafYi3e7RpYU2TuEFlhZgz8-xlQvo"
+      TELEGRAM_BOT_TOKEN: "8954360933:AAGPIHaerGJdGZr6eQBn6G2RwD9p0S4A57k"
 
       FRONTEND_URL: "http://localhost"
 
-      ADMIN_BOT_TOKEN: "8997481007:AAG1QZaafYi3e7RpYU2TuEFlhZgz8-xlQvo"
+      ADMIN_BOT_TOKEN: "8954360933:AAGPIHaerGJdGZr6eQBn6G2RwD9p0S4A57k"
       ADMIN_TELEGRAM_IDS: "1194031410"
 
-      MINI_APP_URL: "t.me/diceGameGamble_bot/IDto"
+      MINI_APP_URL: "t.me/AkoID_bot/app"
 
       SMSCODE_API_VERSION: "v2"
       SMSCODE_API_TOKEN: "c3c0f40974a4b4f1f908a48e155c091d3190dba0877ce5ee086a6caeab514f3a"
       SMSCODE_APPLE_CATALOG_PRODUCT_ID: "0"
       SMSCODE_APPLE_MAX_PRICE_USD: "0.03"
 
-      SMSCODE_WEBHOOK_URL: "https://version-athletic-administrator-eleven.trycloudflare.com/webhooks/smscode"
+      SMSCODE_WEBHOOK_URL: "https://app.doryxo.ir/webhooks/smscode"
 
       ZIBAL_ENABLED: "true"
       ZIBAL_MERCHANT: "zibal"
-      ZIBAL_CALLBACK_URL: "https://t.me/diceGameGamble_bot/IDto"
+      ZIBAL_CALLBACK_URL: "https://t.me/AkoID_bot/app"
 
       ZIBAL_MIN_DEPOSIT_IRT: "1000"
       ZIBAL_MAX_DEPOSIT_IRT: "50000000"
