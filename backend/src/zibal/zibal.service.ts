@@ -144,15 +144,18 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async callback(trackIdValue?: string, orderId?: string) {
+  /**
+   * The only callback input accepted from the gateway/browser is trackId.
+   * orderId, success, status and amount query parameters are intentionally ignored.
+   */
+  async callback(trackIdValue?: string) {
     const trackId = String(trackIdValue ?? '').trim();
     if (!trackId) throw new BadRequestException('trackId الزامی است.');
+
     const payment = await this.payments.findOne({ where: { trackId } });
-    if (!payment && orderId) {
-      const byOrder = await this.payments.findOne({ where: { orderId } });
-      if (byOrder?.trackId === trackId) return this.verifyAndSettle(byOrder.id);
-    }
     if (!payment) throw new NotFoundException('تراکنش زیبال پیدا نشد.');
+
+    // Zibal is the source of truth. The browser callback itself is never trusted.
     return this.verifyAndSettle(payment.id);
   }
 
@@ -161,6 +164,8 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     if (!payment?.trackId) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
     if (payment.status === 'SUCCESS') return { success: true, alreadyProcessed: true, payment };
 
+    // Always verify directly against Zibal using our merchant credentials and
+    // the trackId persisted when the payment request was created.
     const result = await this.post<ZibalResponse>(VERIFY_URL, { merchant: this.merchant(), trackId: Number(payment.trackId) });
     const isSuccess = (result.result === 100 || result.result === 201) && result.status === 1;
     if (!isSuccess) {
