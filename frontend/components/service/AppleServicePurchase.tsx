@@ -224,7 +224,28 @@ export default function AppleServicePurchase({
     }
   }
 
+  const handleSmsOrderChange = useCallback((next: SmsOrderCardData) => {
+    if (
+      next.status === "CANCELED" ||
+      next.status === "EXPIRED" ||
+      next.status === "COMPLETED"
+    ) {
+      setSmsOrder(null);
+      setTimer(0);
+      lastStatus.current = next.status;
+      return;
+    }
 
+    setSmsOrder(next);
+    setTimer(remainingSeconds(next.expiresAt));
+  }, []);
+
+  const handleSmsOrderRemove = useCallback(() => {
+    setSmsOrder(null);
+    setTimer(0);
+    lastStatus.current = null;
+    notifiedRevision.current = 0;
+  }, []);
 
   const guideSection =
     !guide || !steps.length || product.requiresGuide === false ? (
@@ -389,21 +410,21 @@ export default function AppleServicePurchase({
   return (
     <div className="mt-5 space-y-3">
       <AnimatePresence mode="wait">
-  {smsOrder && (
-    <motion.div
-      initial={{ opacity: 1, height: "auto" }}
-      exit={{ opacity: 0, height: 0, y: -10 }}
-      transition={{ duration: 0.2 }}
-      className="overflow-hidden"
-    >
-      <SmsOrderCard
-                    order={smsOrder}
-                    onChange={(next) => setSmsOrder( next)}
-                    onRemove={() => setSmsOrder(null)}
-                  />
-    </motion.div>
-  )}
-</AnimatePresence>
+        {smsOrder && (
+          <motion.div
+            initial={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <SmsOrderCard
+              order={smsOrder}
+              onChange={handleSmsOrderChange}
+              onRemove={handleSmsOrderRemove}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
       {guideSection}
       <RequestNumberButton
         loading={smsLoading}
@@ -450,4 +471,3 @@ function RequestNumberButton({
     </button>
   );
 }
-
