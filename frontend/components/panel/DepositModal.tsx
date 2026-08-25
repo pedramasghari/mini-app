@@ -8,12 +8,13 @@ import { ArrowRight } from 'lucide-react';
 
 type ZibalConfig = { enabled: boolean; minAmount: string; maxAmount: string; currency: string };
 type PaymentMode = 'ONLINE' | 'CARD';
+type PaymentResult = 'success' | 'failed' | 'pending';
 
 export default function DepositModal() {
   const { methods, refresh } = usePanel();
   const searchParams = useSearchParams();
   const cards = useMemo(() => methods.filter((m) => m.type === 'CARD_TRANSFER'), [methods]);
-  const paymentResult = searchParams.get('payment');
+  const paymentResult = searchParams.get('payment') as PaymentResult | null;
   const paymentId = searchParams.get('paymentId');
   const [mode, setMode] = useState<PaymentMode>('ONLINE');
   const [selected, setSelected] = useState('');
@@ -29,7 +30,18 @@ export default function DepositModal() {
   }, []);
 
   useEffect(() => {
-    if (paymentResult) void refresh();
+    if (!paymentResult) return;
+
+    // Refresh the wallet immediately after returning from Zibal. The backend
+    // has already performed verification/settlement before redirecting here.
+    void refresh();
+
+    // Keep the result UI visible, but remove gateway query parameters from the
+    // address bar so a browser refresh cannot replay the result screen.
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete('payment');
+    cleanUrl.searchParams.delete('paymentId');
+    window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
   }, [paymentResult, refresh]);
 
   const numeric = Number(amount.replace(/[^0-9]/g, ''));
@@ -104,13 +116,28 @@ export default function DepositModal() {
     );
   }
 
+  if (paymentResult === 'pending') {
+    return (
+      <div className="mx-auto w-full max-w-2xl px-3 pb-24 sm:px-5">
+        <div className="rounded-[32px] border border-amber-400/20 bg-[#111827] p-7 text-center text-white shadow-2xl">
+          <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-amber-400/10 text-4xl text-amber-300">…</div>
+          <p className="mt-5 text-xs font-bold text-amber-300/70">پرداخت زیبال</p>
+          <h2 className="mt-2 text-2xl font-black">در حال بررسی پرداخت</h2>
+          <p className="mt-3 text-sm leading-7 text-white/50">نتیجه نهایی هنوز از درگاه دریافت نشده است. سیستم به‌صورت خودکار پرداخت‌های تکمیل‌شده را بررسی می‌کند و در صورت تأیید، کیف پول شما را شارژ خواهد کرد.</p>
+          {paymentId && <p className="mt-4 text-xs text-white/30" dir="ltr">Payment ID: {paymentId}</p>}
+          <button onClick={() => { void refresh(); go('/panel'); }} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">بازگشت به پنل</button>
+        </div>
+      </div>
+    );
+  }
+
   if (paymentResult === 'failed') {
     return (
       <div className="mx-auto w-full max-w-2xl px-3 pb-24 sm:px-5">
         <div className="rounded-[32px] border border-red-400/20 bg-[#111827] p-7 text-center text-white shadow-2xl">
           <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-red-400/10 text-4xl text-red-300">!</div>
           <h2 className="mt-5 text-2xl font-black">پرداخت تکمیل نشد</h2>
-          <p className="mt-3 text-sm leading-7 text-white/50">اگر مبلغ از حساب شما کسر شده باشد، سیستم بررسی دوره‌ای زیبال را انجام می‌دهد و در صورت تأیید، کیف پول شما را شارژ می‌کند.</p>
+          <p className="mt-3 text-sm leading-7 text-white/50">پرداخت توسط درگاه تأیید نشد. اگر مبلغ از حساب شما کسر شده باشد، سیستم بررسی دوره‌ای زیبال را انجام می‌دهد و در صورت تأیید، کیف پول شما را شارژ می‌کند.</p>
           <button onClick={() => go('/panel/wallet/deposit')} className="mt-7 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">تلاش مجدد</button>
         </div>
       </div>
