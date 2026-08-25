@@ -67,6 +67,9 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
   const [activeOrderResolved, setActiveOrderResolved] = useState(false);
   const lastStatus = useRef<string | null>(null);
   const notifiedRevision = useRef(0);
+  const smsOrderCardRef = useRef<HTMLDivElement | null>(null);
+  const previousPhoneNumber = useRef<string | null>(null);
+  const skipInitialSmsScroll = useRef(true);
 
   const steps = useMemo(() => (guide?.steps ?? []).slice().sort((a, b) => a.position - b.position), [guide]);
   const current = steps[step];
@@ -77,6 +80,7 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
     setTimer(0);
     lastStatus.current = null;
     notifiedRevision.current = 0;
+    previousPhoneNumber.current = null;
   }, []);
 
   useEffect(() => {
@@ -99,6 +103,33 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
     }
   }, [storageKey, started, step]);
 
+  // When a phone is actually assigned, bring the SMS order card into view.
+  // The initial active-order hydration is intentionally ignored so opening
+  // the service page does not unexpectedly move the user's scroll position.
+  useEffect(() => {
+    if (!smsOrder) {
+      previousPhoneNumber.current = null;
+      return;
+    }
+
+    const phoneReceived = Boolean(smsOrder.phoneNumber) && !previousPhoneNumber.current;
+    previousPhoneNumber.current = smsOrder.phoneNumber ?? null;
+
+    if (skipInitialSmsScroll.current) {
+      skipInitialSmsScroll.current = false;
+      return;
+    }
+
+    if (!phoneReceived) return;
+
+    window.requestAnimationFrame(() => {
+      smsOrderCardRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+  }, [smsOrder?.id, smsOrder?.phoneNumber]);
+
   const syncSmsOrder = useCallback(async (id: string, silent = true) => {
     try {
       const next = await api<SmsOrder>(`smscode/orders/${id}`);
@@ -112,6 +143,7 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
         setTimer(0);
         lastStatus.current = next.status;
         notifiedRevision.current = 0;
+        previousPhoneNumber.current = null;
 
         if (previous !== next.status) {
           if (next.status === "CANCELED" || next.status === "CANCELLED") {
@@ -158,6 +190,8 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
         setTimer(remainingSeconds(next.expiresAt));
         lastStatus.current = next.status;
         notifiedRevision.current = next.smsRevision ?? 0;
+        // This order was hydrated from the server, not newly received.
+        previousPhoneNumber.current = next.phoneNumber ?? null;
       })
       .catch(() => {
         if (!cancelled) toast.error("بررسی شماره فعال انجام نشد. لطفاً دوباره تلاش کنید.");
@@ -218,6 +252,7 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
       setTimer(0);
       lastStatus.current = next.status;
       notifiedRevision.current = 0;
+      previousPhoneNumber.current = null;
       return;
     }
     setSmsOrder(next);
@@ -259,7 +294,7 @@ export default function AppleServicePurchase({ service, product, guide }: Props)
   return (
     <div className="mt-5 space-y-3">
       <AnimatePresence initial={false}>
-        {smsOrder ? <motion.div key={smsOrder.id} initial={{ opacity: 0, y: -12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: 0.98 }} transition={{ duration: 0.2 }} className="overflow-hidden"><SmsOrderCard order={smsOrder} onChange={handleSmsOrderChange} onRemove={handleSmsOrderRemove} /></motion.div> : null}
+        {smsOrder ? <motion.div ref={smsOrderCardRef} key={smsOrder.id} initial={{ opacity: 0, y: -12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: 0.98 }} transition={{ duration: 0.2 }} className="overflow-hidden"><SmsOrderCard order={smsOrder} onChange={handleSmsOrderChange} onRemove={handleSmsOrderRemove} /></motion.div> : null}
       </AnimatePresence>
       {guideSection}
       <RequestNumberButton loading={smsLoading} disabled={!activeOrderResolved || activeSms} onClick={() => void requestNumber()} />
