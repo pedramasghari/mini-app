@@ -56,7 +56,6 @@ export class Product {
 }
 
 @Entity('activation_guides')
-@Index('uq_activation_guide_product', ['productId'], { unique: true })
 export class ActivationGuide {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index({ unique: true }) @Column('uuid') productId!: string;
@@ -68,7 +67,6 @@ export class ActivationGuide {
 }
 
 @Entity('activation_steps')
-@Index('idx_activation_steps_guide', ['guideId'])
 export class ActivationStep {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index() @Column('uuid') guideId!: string;
