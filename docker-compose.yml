@@ -4,13 +4,81 @@ services:
     container_name: mini-app-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: miniapp
-      POSTGRES_PASSWORD: miniapp_password
-      POSTGRES_DB: miniapp
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-miniapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-miniapp_password}
+      POSTGRES_DB: ${POSTGRES_DB:-miniapp}
     volumes:
       - mini_app_postgres:/var/lib/postgresql/data
+    networks:
+      - mini_app
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-miniapp} -d ${POSTGRES_DB:-miniapp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mini-app-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      PORT: 4000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${POSTGRES_USER:-miniapp}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-miniapp_password}
+      DATABASE_NAME: ${POSTGRES_DB:-miniapp}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - backend_uploads:/app/uploads
+    expose:
+      - "4000"
+    networks:
+      - mini_app
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        BACKEND_URL: ${BACKEND_URL:-http://backend:4000}
+    container_name: mini-app-frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://backend:4000}
+      NODE_ENV: production
+    depends_on:
+      - backend
+    expose:
+      - "3000"
+    networks:
+      - mini_app
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: mini-app-nginx
+    restart: unless-stopped
+    depends_on:
+      - frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - backend_uploads:/var/www/uploads:ro
+    networks:
+      - mini_app
 
 volumes:
   mini_app_postgres:
+  backend_uploads:
+
+networks:
+  mini_app:
+    driver: bridge
