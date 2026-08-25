@@ -5,6 +5,8 @@ import { ZibalService } from './zibal.service';
 
 const COOKIE = 'miniapp_session';
 
+type RedirectStatus = 'success' | 'failed' | 'pending';
+
 @Controller('zibal')
 export class ZibalController {
   constructor(private readonly auth: AuthService, private readonly zibal: ZibalService) {}
@@ -24,20 +26,40 @@ export class ZibalController {
     return this.zibal.createPayment(await this.userId(req), amount);
   }
 
-  /** Zibal redirects the browser here after payment. Verification is always performed server-side. */
-  @Get('callback') async callback(
+  /**
+   * Zibal calls this endpoint from the browser after payment.
+   * The gateway callback is NOT a Mini App page. We verify the payment on the
+   * backend first, then redirect the browser to the configured Mini App URL.
+   */
+  @Get('callback')
+  async callback(
     @Query('trackId') trackId: string,
     @Query('orderId') orderId: string | undefined,
-    @Req() req: Request,
     @Res() response: Response,
-    @Query('success') success?: string,
   ) {
-    const result = await this.zibal.callback(trackId, orderId);
-    const frontend = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+    let status: RedirectStatus = 'pending';
+    let paymentId: string | undefined;
+
+    try {
+      if (!trackId) throw new BadRequestException('trackId الزامی است.');
+      const result = await this.zibal.callback(trackId, orderId);
+      paymentId = result.payment?.id;
+      status = result.success ? 'success' : (result.payment?.status === 'PENDING' ? 'pending' : 'failed');
+    } catch {
+      // A callback/network/verification error must not turn a possibly paid
+      // transaction into a hard failure. The reconciliation job can verify it.
+      status = 'pending';
+    }
+
+    const frontend = process.env.MINI_APP_URL || process.env.FRONTEND_URL;
+    if (!frontend) {
+      return response.status(500).send('Mini App URL is not configured.');
+    }
+
     const url = new URL('/panel/wallet/deposit', frontend);
-    url.searchParams.set('payment', result.success ? 'success' : 'failed');
-    if (result.payment?.id) url.searchParams.set('paymentId', result.payment.id);
-    if (success !== undefined) url.searchParams.set('gatewaySuccess', success);
+    url.searchParams.set('payment', status);
+    if (paymentId) url.searchParams.set('paymentId', paymentId);
+
     return response.redirect(303, url.toString());
   }
 }
