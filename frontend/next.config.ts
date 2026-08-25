@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const backendUrl = process.env.BACKEND_URL ?? "http://localhost:4000";
+
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
     '*.trycloudflare.com',
@@ -7,11 +9,11 @@ const nextConfig: NextConfig = {
   rewrites: async () => [
     {
       source: '/api/:path*',
-      destination: `http://localhost:4000/:path*`,
+      destination: `${backendUrl}/:path*`,
     },
     {
       source: '/uploads/:path*',
-      destination: `http://localhost:4000/uploads/:path*`,
+      destination: `${backendUrl}/uploads/:path*`,
     },
   ],
 };
