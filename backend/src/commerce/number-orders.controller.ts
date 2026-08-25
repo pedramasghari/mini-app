@@ -59,14 +59,7 @@ export class NumberOrdersController {
     });
   }
 
-  /** Resolve and cancel by the actual phone number shown to the user. */
-  @Post('by-phone/:phoneNumber/cancel')
-  async cancelByPhone(@Req() req: Request, @Param('phoneNumber') phoneNumber: string) {
-    const userId = await this.userId(req);
-    const decodedPhone = decodeURIComponent(phoneNumber);
-    const numberOrder = await this.orders.ensureForPhone(userId, decodedPhone);
-    return this.cancelResolvedOrder(userId, numberOrder);
-  }
+
 
   /** Backward-compatible endpoint: accepts either SmsCodeOrder id or NumberOrder id. */
   @Post('by-sms/:smsOrderId/cancel')
