@@ -1,0 +1,35 @@
+# Dependencies are installed inside the image.
+node_modules
+
+# Next.js build output
+.next
+out
+
+# Tests / coverage
+coverage
+
+# Git / IDE
+git
+.git
+.github
+.vscode
+.idea
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files
+docker-compose*.yml
+Dockerfile
