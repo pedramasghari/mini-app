@@ -42,10 +42,9 @@ type ActiveNumberOrder = {
   smsRevision: number;
   canResend: boolean;
   canCancel: boolean;
-  canReplace: boolean;
   resendAvailableAt: string | null;
-  cancelAvailableAt: string | null;
   replaceAvailableAt: string | null;
+  cancelAvailableAt: string | null;
   chargedAmount: string;
   currency: string;
   refunded: boolean;
@@ -210,7 +209,12 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
         order: { createdAt: 'DESC' },
       });
       for (const transaction of transactions) {
-        if (transaction.referenceType !== 'NUMBER_ORDER' || transaction.referenceId !== order.id) {
+        // Only the debit transaction is intentionally relabeled for the number-order UI.
+        // Never rewrite the refund reference, otherwise the refund audit/idempotency guard is lost.
+        if (
+          transaction.referenceType === 'SMSCODE_ORDER' &&
+          transaction.referenceId === order.smsCodeOrderId
+        ) {
           transaction.referenceType = 'NUMBER_ORDER';
           transaction.referenceId = order.id;
           await this.transactions.save(transaction);
