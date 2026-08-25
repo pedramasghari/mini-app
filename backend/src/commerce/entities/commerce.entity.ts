@@ -56,6 +56,7 @@ export class Product {
 }
 
 @Entity('activation_guides')
+@Index('uq_activation_guide_product', ['productId'], { unique: true })
 export class ActivationGuide {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index({ unique: true }) @Column('uuid') productId!: string;
@@ -67,6 +68,7 @@ export class ActivationGuide {
 }
 
 @Entity('activation_steps')
+@Index('idx_activation_steps_guide', ['guideId'])
 export class ActivationStep {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index() @Column('uuid') guideId!: string;
@@ -192,6 +194,14 @@ export class PaymentRequest {
 }
 
 @Entity('wallet_transactions')
+@Index('uq_smscode_order_debit_tx', ['referenceType', 'referenceId'], {
+  unique: true,
+  where: '\"type\" = \'SMSCODE_ORDER_DEBIT\' AND \"referenceType\" = \'SMSCODE_ORDER\' AND \"referenceId\" IS NOT NULL',
+})
+@Index('uq_smscode_order_refund_tx', ['referenceType', 'referenceId'], {
+  unique: true,
+  where: '\"type\" = \'SMSCODE_ORDER_REFUND\' AND \"referenceType\" = \'SMSCODE_ORDER_REFUND\' AND \"referenceId\" IS NOT NULL',
+})
 export class WalletTransaction {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Index() @Column('uuid') userId!: string;
