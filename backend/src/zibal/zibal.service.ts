@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDes
 import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'node:crypto';
 import { Wallet } from '../wallets/entities/wallet.entity';
 import { WalletTransaction } from '../commerce/entities/commerce.entity';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -21,8 +22,6 @@ type ZibalResponse = {
   paidAt?: string;
   refNumber?: string;
   cardNumber?: string;
-  orderId?: string | number;
-  description?: string;
 };
 
 @Injectable()
@@ -39,8 +38,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    const enabled = this.config.get<string>('ZIBAL_ENABLED', 'true') !== 'false';
-    if (!enabled) return;
+    if (this.config.get<string>('ZIBAL_ENABLED', 'true') === 'false') return;
     this.timer = setInterval(() => void this.reconcilePending(), 60_000);
     void this.reconcilePending();
   }
@@ -61,13 +59,8 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     return value;
   }
 
-  private minDeposit() {
-    return BigInt(this.config.get<string>('ZIBAL_MIN_DEPOSIT_IRT', '1000'));
-  }
-
-  private maxDeposit() {
-    return BigInt(this.config.get<string>('ZIBAL_MAX_DEPOSIT_IRT', '50000000'));
-  }
+  private minDeposit() { return BigInt(this.config.get<string>('ZIBAL_MIN_DEPOSIT_IRT', '1000')); }
+  private maxDeposit() { return BigInt(this.config.get<string>('ZIBAL_MAX_DEPOSIT_IRT', '50000000')); }
 
   configForClient() {
     return {
@@ -113,10 +106,9 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
 
   async createPayment(userId: string, amountValue: string) {
     const amount = this.parseAmount(amountValue);
-    const orderId = crypto.randomUUID();
     const payment = await this.payments.save(this.payments.create({
       userId,
-      orderId,
+      orderId: randomUUID(),
       amount: amount.toString(),
       gatewayAmount: (amount * 10n).toString(),
       currency: 'IRT',
@@ -129,7 +121,6 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
         amount: Number(payment.gatewayAmount),
         callbackUrl: this.callbackUrl(),
         description: `Wallet deposit ${payment.id}`,
-        orderId: payment.orderId,
       });
       if (result.result !== 100 || result.trackId === undefined) {
         payment.status = 'FAILED';
@@ -173,11 +164,13 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     const result = await this.post<ZibalResponse>(VERIFY_URL, { merchant: this.merchant(), trackId: Number(payment.trackId) });
     const isSuccess = (result.result === 100 || result.result === 201) && result.status === 1;
     if (!isSuccess) {
+      const stillPending = result.status === -1;
       await this.payments.update(payment.id, {
+        status: stillPending ? 'PENDING' : 'FAILED',
         gatewayResult: result.result == null ? null : String(result.result),
         gatewayMessage: result.message ?? null,
         gatewaySnapshot: result as Record<string, unknown>,
-        failureReason: result.status === -1 ? null : (result.message ?? 'پرداخت موفق نبود.'),
+        failureReason: stillPending ? null : (result.message ?? 'پرداخت موفق نبود.'),
       });
       return { success: false, alreadyProcessed: false, payment: await this.payments.findOne({ where: { id: payment.id } }), gateway: result };
     }
@@ -186,7 +179,6 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async settleSuccessfulPayment(paymentId: string, result: ZibalResponse) {
-    let credited = false;
     const settled = await this.dataSource.transaction(async manager => {
       const locked = await manager.findOne(ZibalPayment, { where: { id: paymentId }, lock: { mode: 'pessimistic_write' } });
       if (!locked) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
@@ -205,14 +197,14 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       const wallet = await manager.findOne(Wallet, { where: { userId: locked.userId, currency: locked.currency }, lock: { mode: 'pessimistic_write' } });
       if (!wallet) throw new NotFoundException('کیف پول پیدا نشد.');
       const before = wallet.balance;
-      const credit = locked.amount;
-      await manager.query('UPDATE wallets SET balance = balance + $1, "updatedAt" = NOW() WHERE id = $2', [credit, wallet.id]);
+      await manager.query('UPDATE wallets SET balance = balance + $1, "updatedAt" = NOW() WHERE id = $2', [locked.amount, wallet.id]);
       const afterRow = await manager.findOneByOrFail(Wallet, { id: wallet.id });
+
       await manager.save(WalletTransaction, manager.create(WalletTransaction, {
         userId: locked.userId,
         walletId: wallet.id,
         type: 'DEPOSIT',
-        amount: credit,
+        amount: locked.amount,
         balanceBefore: before,
         balanceAfter: afterRow.balance,
         currency: locked.currency,
@@ -220,6 +212,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
         referenceId: locked.id,
         description: 'شارژ کیف پول از طریق زیبال',
       }));
+
       locked.status = 'SUCCESS';
       locked.gatewayResult = String(result.result ?? '100');
       locked.gatewayMessage = result.message ?? null;
@@ -229,7 +222,6 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       locked.gatewaySnapshot = result as Record<string, unknown>;
       locked.failureReason = null;
       await manager.save(locked);
-      credited = true;
       return { payment: locked, credited: true };
     });
 
@@ -248,18 +240,11 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     if (this.reconciling) return;
     this.reconciling = true;
     try {
-      const rows = await this.payments.find({
-        where: { status: 'PENDING' },
-        order: { createdAt: 'ASC' },
-        take: 50,
-      });
+      const rows = await this.payments.find({ where: { status: 'PENDING' }, order: { createdAt: 'ASC' }, take: 50 });
       for (const payment of rows) {
         if (!payment.trackId) continue;
-        try {
-          await this.verifyAndSettle(payment.id);
-        } catch (error) {
-          this.logger.warn(`Zibal reconciliation failed for ${payment.id}: ${String(error)}`);
-        }
+        try { await this.verifyAndSettle(payment.id); }
+        catch (error) { this.logger.warn(`Zibal reconciliation failed for ${payment.id}: ${String(error)}`); }
       }
     } finally {
       this.reconciling = false;
