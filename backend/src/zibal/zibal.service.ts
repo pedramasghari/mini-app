@@ -24,6 +24,8 @@ type ZibalResponse = {
   cardNumber?: string;
 };
 
+type PublicPaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED';
+
 @Injectable()
 export class ZibalService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ZibalService.name);
@@ -159,13 +161,51 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     return this.verifyAndSettle(payment.id);
   }
 
+  /**
+   * Returns a safe public status for the authenticated payment owner.
+   * It also performs a fresh Zibal verification while the payment is pending,
+   * so the Mini App does not have to wait for the gateway callback or the 1-minute job.
+   */
+  async getPaymentStatus(userId: string, paymentId: string) {
+    const payment = await this.payments.findOne({ where: { id: paymentId, userId } });
+    if (!payment) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
+
+    if (payment.status === 'PENDING' && payment.trackId) {
+      try {
+        const result = await this.verifyAndSettle(payment.id);
+        const refreshed = result.payment ?? await this.payments.findOne({ where: { id: payment.id, userId } });
+        return {
+          id: payment.id,
+          status: this.publicStatus(refreshed?.status),
+          amount: refreshed?.amount ?? payment.amount,
+          currency: refreshed?.currency ?? payment.currency,
+        };
+      } catch (error) {
+        // A temporary verify/network error is not a failed payment.
+        this.logger.debug(`Zibal status check deferred for ${payment.id}: ${String(error)}`);
+      }
+    }
+
+    const refreshed = await this.payments.findOne({ where: { id: payment.id, userId } });
+    return {
+      id: payment.id,
+      status: this.publicStatus(refreshed?.status ?? payment.status),
+      amount: refreshed?.amount ?? payment.amount,
+      currency: refreshed?.currency ?? payment.currency,
+    };
+  }
+
+  private publicStatus(value?: string): PublicPaymentStatus {
+    if (value === 'SUCCESS') return 'SUCCESS';
+    if (value === 'FAILED') return 'FAILED';
+    return 'PENDING';
+  }
+
   async verifyAndSettle(paymentId: string) {
     const payment = await this.payments.findOne({ where: { id: paymentId } });
     if (!payment?.trackId) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
     if (payment.status === 'SUCCESS') return { success: true, alreadyProcessed: true, payment };
 
-    // Always verify directly against Zibal using our merchant credentials and
-    // the trackId persisted when the payment request was created.
     const result = await this.post<ZibalResponse>(VERIFY_URL, { merchant: this.merchant(), trackId: Number(payment.trackId) });
     const isSuccess = (result.result === 100 || result.result === 201) && result.status === 1;
     if (!isSuccess) {
