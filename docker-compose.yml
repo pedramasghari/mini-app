@@ -12,10 +12,11 @@ services:
     networks:
       - mini_app
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-miniapp} -d ${POSTGRES_DB:-miniapp}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-miniapp} -d $${POSTGRES_DB:-miniapp}"]
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 5s
 
   backend:
     build:
@@ -26,6 +27,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
+      NODE_ENV: production
       PORT: 4000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
@@ -52,8 +54,10 @@ services:
     container_name: mini-app-frontend
     restart: unless-stopped
     environment:
-      BACKEND_URL: ${BACKEND_URL:-http://backend:4000}
       NODE_ENV: production
+      BACKEND_URL: ${BACKEND_URL:-http://backend:4000}
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
     depends_on:
       - backend
     expose:
@@ -67,6 +71,7 @@ services:
     restart: unless-stopped
     depends_on:
       - frontend
+      - backend
     ports:
       - "80:80"
     volumes:
