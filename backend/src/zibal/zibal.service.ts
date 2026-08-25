@@ -48,20 +48,111 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     return merchant;
   }
 
-  private async post<T>(url: string, body: Record<string, unknown>): Promise<T> {
-    const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    const text = await response.text();
-    let data: unknown;
-    try { data = JSON.parse(text); } catch { throw new BadRequestException('پاسخ نامعتبر از زیبال دریافت شد.'); }
-    if (!response.ok) throw new BadRequestException((data as { message?: string })?.message ?? 'خطا در ارتباط با زیبال.');
-    return data as T;
+  private callbackUrl() {
+    const value = this.config.get<string>('ZIBAL_CALLBACK_URL');
+    if (!value) throw new BadRequestException('آدرس callback زیبال تنظیم نشده است.');
+    return value;
   }
 
-  private publicStatus(value?: string): PublicPaymentStatus {
-    if (value === 'SUCCESS') return 'SUCCESS';
-    if (value === 'FAILED') return 'FAILED';
-    if (value === 'EXPIRED') return 'EXPIRED';
-    return 'PENDING';
+  private minDeposit() { return BigInt(this.config.get<string>('ZIBAL_MIN_DEPOSIT_IRT', '1000')); }
+  private maxDeposit() { return BigInt(this.config.get<string>('ZIBAL_MAX_DEPOSIT_IRT', '50000000')); }
+
+  configForClient() {
+    return {
+      enabled: this.config.get<string>('ZIBAL_ENABLED', 'true') !== 'false',
+      minAmount: this.minDeposit().toString(),
+      maxAmount: this.maxDeposit().toString(),
+      currency: 'IRT',
+    };
+  }
+
+  private parseAmount(value: string) {
+    const normalized = String(value ?? '').trim().replace(/,/g, '');
+    if (!/^\d+$/.test(normalized)) throw new BadRequestException('مبلغ شارژ باید عدد صحیح باشد.');
+    const amount = BigInt(normalized);
+    const min = this.minDeposit();
+    const max = this.maxDeposit();
+    if (amount < min) throw new BadRequestException(`حداقل مبلغ شارژ ${min.toLocaleString('fa-IR')} تومان است.`);
+    if (amount > max) throw new BadRequestException(`حداکثر مبلغ شارژ ${max.toLocaleString('fa-IR')} تومان است.`);
+    if (amount * 10n <= MIN_PROVIDER_RIAL) throw new BadRequestException('مبلغ برای درگاه زیبال کمتر از حد مجاز است.');
+    return amount;
+  }
+
+  private async post<T>(url: string, body: Record<string, unknown>): Promise<T> {
+    const timeout = Number(this.config.get<string>('ZIBAL_TIMEOUT_MS', '15000')) || 15000;
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), timeout);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      let data: unknown;
+      try { data = JSON.parse(text); } catch { throw new BadRequestException('پاسخ نامعتبر از زیبال دریافت شد.'); }
+      if (!response.ok) throw new BadRequestException((data as { message?: string })?.message ?? 'خطا در ارتباط با زیبال.');
+      return data as T;
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+  }
+
+  async createPayment(userId: string, amountValue: string) {
+    const amount = this.parseAmount(amountValue);
+    const payment = await this.payments.save(this.payments.create({
+      userId,
+      orderId: randomUUID(),
+      amount: amount.toString(),
+      gatewayAmount: (amount * 10n).toString(),
+      currency: 'IRT',
+      status: 'PENDING',
+      expiresAt: new Date(Date.now() + PAYMENT_TTL_MS),
+    }));
+
+    try {
+      const result = await this.post<ZibalResponse>(REQUEST_URL, {
+        merchant: this.merchant(),
+        amount: Number(payment.gatewayAmount),
+        callbackUrl: this.callbackUrl(),
+        orderId: payment.orderId,
+        description: `Wallet deposit ${payment.id}`,
+      });
+      if (result.result !== 100 || result.trackId === undefined) {
+        payment.status = 'FAILED';
+        payment.gatewayResult = result.result == null ? null : String(result.result);
+        payment.gatewayMessage = result.message ?? null;
+        payment.failureReason = result.message ?? 'درخواست پرداخت از زیبال پذیرفته نشد.';
+        payment.gatewaySnapshot = { ...result } as any;
+        await this.payments.save(payment);
+        throw new BadRequestException(payment.failureReason);
+      }
+      payment.trackId = String(result.trackId);
+      payment.gatewayResult = String(result.result);
+      payment.gatewayMessage = result.message ?? null;
+      payment.gatewaySnapshot = { ...result } as any;
+      await this.payments.save(payment);
+      return {
+        id: payment.id,
+        ticketId: payment.id,
+        trackId: payment.trackId,
+        paymentUrl: `${START_URL}${payment.trackId}`,
+        amount: payment.amount,
+        currency: payment.currency,
+        expiresAt: payment.expiresAt,
+      };
+    } catch (error) {
+      if (payment.status === 'PENDING' && !payment.trackId) {
+        payment.failureReason = error instanceof Error ? error.message : 'خطا در اتصال به زیبال';
+        await this.payments.save(payment).catch(() => undefined);
+      }
+      throw error;
+    }
+  }
+
+  async request(userId: string, amount: string) {
+    return this.createPayment(userId, amount);
   }
 
   async callback(trackIdValue?: string) {
@@ -81,6 +172,15 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       payment.failureReason = 'مهلت ۲۰ دقیقه‌ای پرداخت به پایان رسید.';
     }
     return { id: payment.id, ticketId: payment.id, status: this.publicStatus(payment.status), amount: payment.amount, currency: payment.currency, expiresAt: payment.expiresAt };
+  }
+
+  async getStatus(userId: string, paymentId: string) { return this.getPaymentStatus(userId, paymentId); }
+
+  private publicStatus(value?: string): PublicPaymentStatus {
+    if (value === 'SUCCESS') return 'SUCCESS';
+    if (value === 'FAILED') return 'FAILED';
+    if (value === 'EXPIRED') return 'EXPIRED';
+    return 'PENDING';
   }
 
   private async expirePayment(paymentId: string) {
@@ -104,8 +204,10 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     if (!isSuccess) {
       const stillPending = result.status === -1;
       await this.payments.update(payment.id, {
-        status: stillPending ? 'PENDING' : 'FAILED', gatewayResult: result.result == null ? null : String(result.result),
-        gatewayMessage: result.message ?? null, gatewaySnapshot: { ...result },
+        status: stillPending ? 'PENDING' : 'FAILED',
+        gatewayResult: result.result == null ? null : String(result.result),
+        gatewayMessage: result.message ?? null,
+        gatewaySnapshot: { ...result } as any,
         failureReason: stillPending ? null : (result.message ?? 'پرداخت موفق نبود.'),
       });
       return { success: false, alreadyProcessed: false, payment: await this.payments.findOne({ where: { id: payment.id } }), gateway: result };
@@ -121,21 +223,17 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       if (!locked.trackId) throw new BadRequestException('شناسه تراکنش زیبال ثبت نشده است.');
 
       if (result.amount == null || !/^\d+$/.test(String(result.amount))) {
-        locked.status = 'FAILED'; locked.failureReason = 'مبلغ تاییدشده توسط زیبال دریافت نشد.'; locked.gatewaySnapshot = { ...result };
+        locked.status = 'FAILED'; locked.failureReason = 'مبلغ تاییدشده توسط زیبال دریافت نشد.'; locked.gatewaySnapshot = { ...result } as any;
         await manager.save(locked); throw new BadRequestException(locked.failureReason);
       }
       if (BigInt(String(result.amount)) !== BigInt(locked.gatewayAmount)) {
-        locked.status = 'FAILED'; locked.failureReason = 'مبلغ تراکنش زیبال با مبلغ سفارش یکسان نیست.'; locked.gatewaySnapshot = { ...result };
+        locked.status = 'FAILED'; locked.failureReason = 'مبلغ تراکنش زیبال با مبلغ سفارش یکسان نیست.'; locked.gatewaySnapshot = { ...result } as any;
         await manager.save(locked); throw new BadRequestException(locked.failureReason);
       }
 
       const wallet = await manager.findOne(Wallet, { where: { userId: locked.userId, currency: locked.currency }, lock: { mode: 'pessimistic_write' } });
       if (!wallet) throw new NotFoundException('کیف پول پیدا نشد.');
       const before = String(wallet.balance);
-
-      // Use TypeORM's UpdateQueryBuilder so the affected-row count is stable across
-      // TypeORM/Postgres driver versions. The wallet row is already pessimistically
-      // locked, so the arithmetic update remains atomic within this transaction.
       const updateResult = await manager.createQueryBuilder().update(Wallet)
         .set({ balance: () => '"balance" + CAST(:amount AS numeric)' })
         .setParameters({ amount: locked.amount })
@@ -153,9 +251,14 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
         referenceType: 'ZIBAL_PAYMENT', referenceId: locked.id, description: 'شارژ کیف پول از طریق زیبال',
       }));
 
-      locked.status = 'SUCCESS'; locked.gatewayResult = String(result.result ?? '100'); locked.gatewayMessage = result.message ?? null;
-      locked.refNumber = result.refNumber ?? null; locked.cardNumber = result.cardNumber ?? null;
-      locked.paidAt = result.paidAt ? new Date(result.paidAt) : new Date(); locked.gatewaySnapshot = { ...result }; locked.failureReason = null;
+      locked.status = 'SUCCESS';
+      locked.gatewayResult = String(result.result ?? '100');
+      locked.gatewayMessage = result.message ?? null;
+      locked.refNumber = result.refNumber ?? null;
+      locked.cardNumber = result.cardNumber ?? null;
+      locked.paidAt = result.paidAt ? new Date(result.paidAt) : new Date();
+      locked.gatewaySnapshot = { ...result } as any;
+      locked.failureReason = null;
       await manager.save(locked);
       return { payment: locked, credited: true };
     });
@@ -173,7 +276,8 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
   async reconcilePending() {
     if (this.reconciling) return;
     this.reconciling = true;
-    const runner = this.dataSource.createQueryRunner(); await runner.connect();
+    const runner = this.dataSource.createQueryRunner();
+    await runner.connect();
     let acquired = false;
     try {
       const lockRows = await runner.query('SELECT pg_try_advisory_lock($1) AS acquired', [RECONCILE_LOCK_KEY]);
@@ -195,25 +299,11 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  onModuleInit() { this.timer = setInterval(() => this.reconcilePending().catch(error => this.logger.error(`Zibal reconciliation job failed: ${String(error)}`)), 60_000); }
-  onModuleDestroy() { if (this.timer) clearInterval(this.timer); }
-
-  // Existing request flow is intentionally kept outside settlement changes.
-  async request(userId: string, amount: string) {
-    const numericAmount = BigInt(String(amount));
-    if (numericAmount < MIN_PROVIDER_RIAL) throw new BadRequestException(`حداقل مبلغ پرداخت ${MIN_PROVIDER_RIAL.toString()} ریال است.`);
-    const payment = await this.payments.save(this.payments.create({ userId, orderId: randomUUID(), amount: String(amount), gatewayAmount: numericAmount.toString(), currency: 'IRT', status: 'PENDING', expiresAt: new Date(Date.now() + PAYMENT_TTL_MS) }));
-    try {
-      const result = await this.post<ZibalResponse>(REQUEST_URL, { merchant: this.merchant(), amount: Number(payment.gatewayAmount), callbackUrl: this.config.get<string>('ZIBAL_CALLBACK_URL'), orderId: payment.orderId });
-      if (!result.trackId) throw new BadRequestException('شناسه تراکنش زیبال دریافت نشد.');
-      payment.trackId = String(result.trackId); payment.gatewayResult = String(result.result ?? ''); payment.gatewayMessage = result.message ?? null; payment.gatewaySnapshot = { ...result };
-      await this.payments.save(payment);
-      return { id: payment.id, ticketId: payment.id, trackId: payment.trackId, paymentUrl: `${START_URL}${payment.trackId}`, amount: payment.amount, currency: payment.currency, expiresAt: payment.expiresAt };
-    } catch (error) {
-      if (payment.status === 'PENDING' && !payment.trackId) { payment.failureReason = error instanceof Error ? error.message : 'خطا در اتصال به زیبال'; await this.payments.save(payment).catch(() => undefined); }
-      throw error;
-    }
+  onModuleInit() {
+    if (this.config.get<string>('ZIBAL_ENABLED', 'true') === 'false') return;
+    this.timer = setInterval(() => this.reconcilePending().catch(error => this.logger.error(`Zibal reconciliation job failed: ${String(error)}`)), 60_000);
+    void this.reconcilePending();
   }
 
-  async getStatus(userId: string, paymentId: string) { return this.getPaymentStatus(userId, paymentId); }
+  onModuleDestroy() { if (this.timer) clearInterval(this.timer); }
 }
