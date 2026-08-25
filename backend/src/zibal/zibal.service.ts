@@ -13,6 +13,7 @@ const VERIFY_URL = 'https://gateway.zibal.ir/v1/verify';
 const START_URL = 'https://gateway.zibal.ir/start/';
 const MIN_PROVIDER_RIAL = 1001n;
 const PAYMENT_TTL_MS = 20 * 60 * 1000;
+const RECONCILE_LOCK_KEY = 748291;
 
 type ZibalResponse = {
   result?: number;
@@ -236,8 +237,17 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       if (locked.status === 'SUCCESS' || locked.status === 'EXPIRED') return { payment: locked, credited: false };
       if (!locked.trackId) throw new BadRequestException('شناسه تراکنش زیبال ثبت نشده است.');
 
-      const verifiedAmount = result.amount == null ? null : BigInt(String(result.amount));
-      if (verifiedAmount !== null && verifiedAmount !== BigInt(locked.gatewayAmount)) {
+      // A successful gateway response is not sufficient by itself. The amount must
+      // be present and exactly match the amount originally requested from Zibal.
+      if (result.amount == null || !/^\d+$/.test(String(result.amount))) {
+        locked.status = 'FAILED';
+        locked.failureReason = 'مبلغ تاییدشده توسط زیبال دریافت نشد.';
+        locked.gatewaySnapshot = { ...result };
+        await manager.save(locked);
+        throw new BadRequestException(locked.failureReason);
+      }
+      const verifiedAmount = BigInt(String(result.amount));
+      if (verifiedAmount !== BigInt(locked.gatewayAmount)) {
         locked.status = 'FAILED';
         locked.failureReason = 'مبلغ تراکنش زیبال با مبلغ سفارش یکسان نیست.';
         locked.gatewaySnapshot = { ...result };
@@ -248,8 +258,12 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       const wallet = await manager.findOne(Wallet, { where: { userId: locked.userId, currency: locked.currency }, lock: { mode: 'pessimistic_write' } });
       if (!wallet) throw new NotFoundException('کیف پول پیدا نشد.');
       const before = wallet.balance;
-      await manager.query('UPDATE wallets SET balance = balance + $1, "updatedAt" = NOW() WHERE id = $2', [locked.amount, wallet.id]);
-      const afterRow = await manager.findOneByOrFail(Wallet, { id: wallet.id });
+      const updateRows = await manager.query(
+        `UPDATE wallets SET balance = balance + CAST($1 AS numeric), "updatedAt" = NOW() WHERE id = $2 RETURNING balance`,
+        [locked.amount, wallet.id],
+      );
+      if (!Array.isArray(updateRows) || updateRows.length !== 1) throw new BadRequestException('خطا در به‌روزرسانی موجودی کیف پول.');
+      const after = String(updateRows[0].balance);
 
       await manager.save(WalletTransaction, manager.create(WalletTransaction, {
         userId: locked.userId,
@@ -257,7 +271,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
         type: 'DEPOSIT',
         amount: locked.amount,
         balanceBefore: before,
-        balanceAfter: afterRow.balance,
+        balanceAfter: after,
         currency: locked.currency,
         referenceType: 'ZIBAL_PAYMENT',
         referenceId: locked.id,
@@ -290,9 +304,15 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
   async reconcilePending() {
     if (this.reconciling) return;
     this.reconciling = true;
+    const runner = this.dataSource.createQueryRunner();
+    await runner.connect();
+    let acquired = false;
     try {
-      const now = new Date();
+      const lockRows = await runner.query('SELECT pg_try_advisory_lock($1) AS acquired', [RECONCILE_LOCK_KEY]);
+      acquired = Boolean(lockRows?.[0]?.acquired);
+      if (!acquired) return;
 
+      const now = new Date();
       await this.payments.createQueryBuilder()
         .update(ZibalPayment)
         .set({ status: 'EXPIRED', failureReason: 'مهلت ۲۰ دقیقه‌ای پرداخت به پایان رسید.' })
@@ -314,6 +334,8 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
         catch (error) { this.logger.warn(`Zibal reconciliation failed for ${payment.id}: ${String(error)}`); }
       }
     } finally {
+      if (acquired) await runner.query('SELECT pg_advisory_unlock($1)', [RECONCILE_LOCK_KEY]).catch(() => undefined);
+      await runner.release();
       this.reconciling = false;
     }
   }
