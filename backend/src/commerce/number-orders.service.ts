@@ -208,16 +208,6 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
         ],
         order: { createdAt: 'DESC' },
       });
-      for (const transaction of transactions) {
-        if (
-          transaction.referenceType === 'SMSCODE_ORDER' &&
-          transaction.referenceId === order.smsCodeOrderId
-        ) {
-          transaction.referenceType = 'NUMBER_ORDER';
-          transaction.referenceId = order.id;
-          await this.transactions.save(transaction);
-        }
-      }
       result.push({
         ...order,
         product: product ? { id: product.id, title: product.title, icon: product.icon, currency: product.currency } : null,
