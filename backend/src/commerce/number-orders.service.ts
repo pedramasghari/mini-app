@@ -209,8 +209,6 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
         order: { createdAt: 'DESC' },
       });
       for (const transaction of transactions) {
-        // Only the debit transaction is intentionally relabeled for the number-order UI.
-        // Never rewrite the refund reference, otherwise the refund audit/idempotency guard is lost.
         if (
           transaction.referenceType === 'SMSCODE_ORDER' &&
           transaction.referenceId === order.smsCodeOrderId
@@ -245,7 +243,7 @@ export class NumberOrdersService implements OnModuleInit, OnModuleDestroy {
         expiresAt: current.metadata?.expiresAt ?? null, otpCode: current.metadata?.lastOtpCode ?? sms.otpCode ?? null,
         otpMessage: current.metadata?.lastOtpMessage ?? sms.otpMessage ?? null,
         smsRevision: current.metadata?.smsRevision ?? sms.smsRevision ?? 0,
-        canResend: sms.canResend, canCancel: sms.canCancel, canReplace: sms.canReplace,
+        canResend: sms.canResend, canCancel: sms.canCancel,
         resendAvailableAt: sms.resendAvailableAt ?? null, cancelAvailableAt: sms.cancelAvailableAt ?? null,
         replaceAvailableAt: sms.replaceAvailableAt ?? null, chargedAmount: current.amount, currency: current.currency,
         refunded: sms.refunded,
