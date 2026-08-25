@@ -5,9 +5,12 @@ import { AdminGuard } from './admin.guard';
 import { User } from '../users/entities/user.entity';
 import { Wallet } from '../wallets/entities/wallet.entity';
 import { Order, Product, Service, SmsCodeOrder } from '../commerce/entities/commerce.entity';
+import { NumberOrder } from '../commerce/entities/number-order.entity';
 import { SmsCodeService } from '../commerce/smscode.service';
+import { NumberOrdersService } from '../commerce/number-orders.service';
 
 const ACTIVE_SMS = ['CREATING', 'PROVIDER_PENDING', 'ACTIVE', 'OTP_RECEIVED'];
+type NumberOrderDetail = Awaited<ReturnType<NumberOrdersService['listMyOrders']>>[number];
 
 @Controller('admin/users')
 @UseGuards(AdminGuard)
@@ -17,9 +20,11 @@ export class AdminUsersController {
     @InjectRepository(Wallet) private readonly wallets: Repository<Wallet>,
     @InjectRepository(Order) private readonly orders: Repository<Order>,
     @InjectRepository(SmsCodeOrder) private readonly smsOrders: Repository<SmsCodeOrder>,
+    @InjectRepository(NumberOrder) private readonly numberOrderRows: Repository<NumberOrder>,
     @InjectRepository(Product) private readonly products: Repository<Product>,
     @InjectRepository(Service) private readonly services: Repository<Service>,
     private readonly smsCode: SmsCodeService,
+    private readonly numberOrders: NumberOrdersService,
   ) {}
 
   @Get()
@@ -68,21 +73,55 @@ export class AdminUsersController {
   async orderDetail(@Param('userId') userId: string, @Param('orderId') orderId: string, @Query('kind') kind?: string) {
     const user = await this.users.findOne({ where: { id: userId } });
     if (!user) return { found: false };
+
+    if (kind === 'NUMBER_ORDER') {
+      const row = await this.numberOrderRows.findOne({ where: { id: orderId, userId } });
+      if (!row) return { found: false };
+      const numberOrder = (await this.numberOrders.listMyOrders(userId)).find((item) => item.id === row.id);
+      if (!numberOrder) return { found: false };
+      return this.numberOrderDetail(numberOrder, user);
+    }
+
     if (kind === 'SMSCODE') {
       const order = await this.smsOrders.findOne({ where: { id: orderId, userId } });
       if (!order) return { found: false };
+
+      // Prefer the canonical NumberOrder projection used by /number-orders/me.
+      const numberOrder = (await this.numberOrders.listMyOrders(userId)).find(
+        (item) => item.smsCodeOrderId === order.id,
+      );
+      if (numberOrder) return this.numberOrderDetail(numberOrder, user);
+
       let current: unknown = null;
       if (order.providerOrderId && ACTIVE_SMS.includes(order.status)) {
         try { current = await this.smsCode.get(userId, order.id); } catch { current = null; }
       }
-      const [product, service] = await Promise.all([order.productId ? this.products.findOne({ where: { id: order.productId } }) : null, order.serviceId ? this.services.findOne({ where: { id: order.serviceId } }) : null]);
+      const [product, service] = await Promise.all([
+        order.productId ? this.products.findOne({ where: { id: order.productId } }) : null,
+        order.serviceId ? this.services.findOne({ where: { id: order.serviceId } }) : null,
+      ]);
       return { found: true, kind: 'SMSCODE', user, order, product, service, sms: current ?? { ...order, providerOrderId: order.providerOrderId, phoneNumber: order.phoneNumber, status: order.status, canResend: order.canResend, canCancel: order.canCancel, canReplace: order.canReplace, expiresAt: order.expiresAt, resendAvailableAt: order.resendAvailableAt, cancelAvailableAt: order.cancelAvailableAt, replaceAvailableAt: order.replaceAvailableAt } };
     }
+
     const order = await this.orders.findOne({ where: { id: orderId, userId } });
     if (!order) return { found: false };
     const product = await this.products.findOne({ where: { id: order.productId } });
     const service = product ? await this.services.findOne({ where: { id: product.serviceId } }) : null;
     return { found: true, kind: 'ORDER', user, order, product, service };
+  }
+
+  private numberOrderDetail(numberOrder: NumberOrderDetail, user: User) {
+    return {
+      found: true,
+      kind: 'NUMBER_ORDER',
+      user,
+      order: numberOrder,
+      numberOrder,
+      product: numberOrder.product,
+      service: null,
+      otpCodes: numberOrder.otpCodes,
+      transactions: numberOrder.transactions,
+    };
   }
 
   @Post(':userId/orders/:orderId/sms/resend')
