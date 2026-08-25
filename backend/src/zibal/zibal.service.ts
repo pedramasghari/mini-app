@@ -169,7 +169,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
         status: stillPending ? 'PENDING' : 'FAILED',
         gatewayResult: result.result == null ? null : String(result.result),
         gatewayMessage: result.message ?? null,
-        gatewaySnapshot: result as Record<string, unknown>,
+        gatewaySnapshot: { ...result },
         failureReason: stillPending ? null : (result.message ?? 'پرداخت موفق نبود.'),
       });
       return { success: false, alreadyProcessed: false, payment: await this.payments.findOne({ where: { id: payment.id } }), gateway: result };
@@ -189,7 +189,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       if (verifiedAmount !== null && verifiedAmount !== BigInt(locked.gatewayAmount)) {
         locked.status = 'FAILED';
         locked.failureReason = 'مبلغ تراکنش زیبال با مبلغ سفارش یکسان نیست.';
-        locked.gatewaySnapshot = result as Record<string, unknown>;
+        locked.gatewaySnapshot = { ...result };
         await manager.save(locked);
         throw new BadRequestException(locked.failureReason);
       }
@@ -219,7 +219,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       locked.refNumber = result.refNumber ?? null;
       locked.cardNumber = result.cardNumber ?? null;
       locked.paidAt = result.paidAt ? new Date(result.paidAt) : new Date();
-      locked.gatewaySnapshot = result as Record<string, unknown>;
+      locked.gatewaySnapshot = { ...result };
       locked.failureReason = null;
       await manager.save(locked);
       return { payment: locked, credited: true };
