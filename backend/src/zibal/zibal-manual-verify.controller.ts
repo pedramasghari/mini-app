@@ -58,7 +58,9 @@ export class ZibalManualVerifyController {
     // Zibal can return only { result: 202, message: 'transaction failed' }
     // after the user cancels/fails the gateway flow. There is no `status` in
     // that response, so 202 itself is the terminal failure signal.
-    if (result.gateway?.result === ZIBAL_TRANSACTION_FAILED_RESULT && result.payment) {
+    // `verifyAndSettle` returns different object shapes for already-processed
+    // and failed/successful flows, so narrow the union before reading gateway.
+    if ('gateway' in result && result.gateway?.result === ZIBAL_TRANSACTION_FAILED_RESULT && result.payment) {
       result.payment.status = 'FAILED';
     }
 
