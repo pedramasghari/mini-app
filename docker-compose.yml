@@ -3,39 +3,31 @@ services:
     image: postgres:17-alpine
     container_name: mini-app-postgres
     restart: unless-stopped
-
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: PedramPostgres12!@
       POSTGRES_DB: miniapp
-
     ports:
       - "5432:5432"
-
     volumes:
       - mini_app_postgres:/var/lib/postgresql/data
-
     networks:
       - mini_app
-
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"
-        ]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # One-shot migration job. It must complete successfully before the backend
+  # starts, otherwise a partially migrated database could serve traffic.
   backend-migration:
     build:
       context: .
       dockerfile: ./backend/Dockerfile
-      target: development
-
+      target: migration
     env_file:
       - ./backend/.env
-
     environment:
       NODE_ENV: development
       DATABASE_HOST: postgres
@@ -43,13 +35,13 @@ services:
       DATABASE_USER: postgres
       DATABASE_PASSWORD: PedramPostgres12!@
       DATABASE_NAME: miniapp
-
     depends_on:
       postgres:
         condition: service_healthy
-
+    restart: "no"
     networks:
       - mini_app
+
   backend:
     build:
       context: .
@@ -61,41 +53,32 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
       DATABASE_PASSWORD: PedramPostgres12!@
       DATABASE_NAME: miniapp
-
       TELEGRAM_BOT_TOKEN: "8954360933:AAGPIHaerGJdGZr6eQBn6G2RwD9p0S4A57k"
-
       FRONTEND_URL: "https://app.akokala.ir"
-
-      ADMIN_BOT_TOKEN: "8954360933:AAGPIHaerGJdGZr6eQBn6G2RwD9p0S4A57k"
+      ADMIN_BOT_TOKEN: "8954360933:AAGPIHaerGJdGJdGZr6eQBn6G2RwD9p0S4A57k"
       ADMIN_TELEGRAM_IDS: "1194031410"
-
       MINI_APP_URL: "t.me/AkoID_bot/app"
-
       SMSCODE_API_VERSION: "v2"
       SMSCODE_API_TOKEN: "c3c0f40974a4b4f1f908a48e155c091d3190dba0877ce5ee086a6caeab514f3a"
       SMSCODE_APPLE_CATALOG_PRODUCT_ID: "0"
       SMSCODE_APPLE_MAX_PRICE_USD: "0.03"
-
       SMSCODE_WEBHOOK_URL: "https://app.akokala.ir/webhooks/smscode"
-
       ZIBAL_ENABLED: "true"
       ZIBAL_MERCHANT: "68cfbc3ca45c720011b6a889"
       ZIBAL_CALLBACK_URL: "https://app.akokala.ir/zibal/callback"
-
       ZIBAL_MIN_DEPOSIT_IRT: "1000"
       ZIBAL_MAX_DEPOSIT_IRT: "50000000"
-
       ZIBAL_TIMEOUT_MS: "15000"
-
     depends_on:
       postgres:
         condition: service_healthy
+      backend-migration:
+        condition: service_completed_successfully
     volumes:
       - ./backend/uploads:/app/uploads
     expose:
@@ -117,11 +100,13 @@ services:
       PORT: 3000
       HOSTNAME: 0.0.0.0
     depends_on:
-      - backend
+      backend:
+        condition: service_started
     expose:
       - "3000"
     networks:
       - mini_app
+
   nginx:
     image: nginx:1.27-alpine
     container_name: mini-app-nginx
