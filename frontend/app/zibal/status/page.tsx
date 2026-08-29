@@ -43,8 +43,6 @@ function ZibalStatusContent() {
       if (disposed) return;
       await checkStatus();
       if (!disposed) {
-        // Continue polling only while the transaction is actually pending.
-        // FAILED includes user cancellation (Zibal status=3), so it is terminal.
         timer = window.setTimeout(() => {
           if (!disposed && payment?.status !== 'FAILED' && payment?.status !== 'SUCCESS' && payment?.status !== 'EXPIRED') void poll();
         }, 10000);
@@ -71,16 +69,20 @@ function ZibalStatusContent() {
 
   const status = payment?.status ?? 'PENDING';
   const gatewayStatus = payment?.gateway?.status;
-  const isCancelled = gatewayStatus === 3;
+  const gatewayResult = payment?.gateway?.result;
+  // Zibal cancellation/failure may arrive without a status field as
+  // { result: 202, message: 'transaction failed' }.
+  const isCancelled = gatewayStatus === 3 || gatewayResult === '202';
   const isSuccess = status === 'SUCCESS';
   const isFailed = status === 'FAILED';
   const isExpired = status === 'EXPIRED';
-  const isTerminalFailure = isFailed || isExpired;
+  const isTerminalFailure = isFailed || isExpired || isCancelled;
+
   const remaining = remainingSeconds === null ? null : `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, '0')}`;
 
-  const title = isSuccess ? 'پرداخت با موفقیت انجام شد' : isExpired ? 'مهلت پرداخت تمام شد' : isCancelled ? 'پرداخت توسط کاربر لغو شد' : isFailed ? 'پرداخت تکمیل نشد' : 'در حال بررسی پرداخت';
-  const description = isSuccess ? 'پرداخت توسط سرور از زیبال تأیید شد و مبلغ به کیف پول شما اضافه شده است.' : isExpired ? 'مهلت ۲۰ دقیقه‌ای این درخواست تمام شده است.' : isCancelled ? 'پرداخت در درگاه زیبال توسط شما لغو شده و این تراکنش دیگر قابل پرداخت نیست.' : isFailed ? 'این تراکنش ناموفق نهایی شده و دیگر به درگاه زیبال ارسال نمی‌شود. برای پرداخت مجدد یک Ticket ID جدید ایجاد کنید.' : 'درخواست Verify مستقیماً از سرور به زیبال ارسال می‌شود و تا مشخص شدن نتیجه، وضعیت پرداخت بررسی خواهد شد.';
-  const statusLabel = isSuccess ? 'موفق' : isExpired ? 'منقضی شده' : isCancelled ? 'لغو شده توسط کاربر' : isFailed ? 'ناموفق' : 'در حال بررسی';
+  const title = isSuccess ? 'پرداخت با موفقیت انجام شد' : isExpired ? 'مهلت پرداخت تمام شد' : isCancelled ? 'پرداخت لغو یا ناموفق شد' : isFailed ? 'پرداخت تکمیل نشد' : 'در حال بررسی پرداخت';
+  const description = isSuccess ? 'پرداخت توسط سرور از زیبال تأیید شد و مبلغ به کیف پول شما اضافه شده است.' : isExpired ? 'مهلت ۲۰ دقیقه‌ای این درخواست تمام شده است.' : isCancelled ? 'زیبال این تراکنش را با کد ۲۰۲ ناموفق اعلام کرده است. این Ticket ID دیگر قابل پرداخت نیست و برای پرداخت مجدد باید درخواست جدید ایجاد کنید.' : isFailed ? 'این تراکنش ناموفق نهایی شده و دیگر به درگاه زیبال ارسال نمی‌شود. برای پرداخت مجدد یک Ticket ID جدید ایجاد کنید.' : 'درخواست Verify مستقیماً از سرور به زیبال ارسال می‌شود و تا مشخص شدن نتیجه، وضعیت پرداخت بررسی خواهد شد.';
+  const statusLabel = isSuccess ? 'موفق' : isExpired ? 'منقضی شده' : isCancelled ? 'لغو/ناموفق' : isFailed ? 'ناموفق' : 'در حال بررسی';
 
   return (
     <main className="mx-auto w-full max-w-2xl px-3 pb-24 pt-8 sm:px-5"><section className="overflow-hidden rounded-[32px] border border-white/10 bg-[#111827] text-white shadow-2xl">
@@ -102,9 +104,9 @@ function ZibalStatusContent() {
           </>}
         </div>
         {error && <p className="mt-4 rounded-2xl bg-red-400/10 p-4 text-xs leading-6 text-red-200">{error}</p>}
-        <div className="mt-5 flex items-center justify-center gap-2 text-xs text-white/30">{status === 'PENDING' ? <><span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" /> بررسی Verify خودکار هر ۱۰ ثانیه</> : isSuccess ? '✓ موجودی کیف پول به‌روزرسانی شد' : isCancelled ? '× این پرداخت توسط کاربر لغو شده است' : isFailed ? '× این Ticket ID دیگر قابل پرداخت نیست' : '× درخواست منقضی شده است'}</div>
+        <div className="mt-5 flex items-center justify-center gap-2 text-xs text-white/30">{status === 'PENDING' ? <><span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" /> بررسی Verify خودکار هر ۱۰ ثانیه</> : isSuccess ? '✓ موجودی کیف پول به‌روزرسانی شد' : isCancelled ? '× این تراکنش توسط زیبال ناموفق/لغو اعلام شده است' : isFailed ? '× این Ticket ID دیگر قابل پرداخت نیست' : '× درخواست منقضی شده است'}</div>
         {status === 'PENDING' && <button onClick={() => void checkStatus()} disabled={checking} className="mt-7 w-full rounded-2xl bg-white/5 px-4 py-4 text-sm font-bold text-white/80 disabled:opacity-50"><span className="inline-flex items-center gap-2"><RefreshCw size={17} className={checking ? 'animate-spin' : ''} /> بررسی مجدد</span></button>}
-        {(isFailed || isExpired) && <button onClick={newPayment} className="mt-7 w-full rounded-2xl bg-cyan-300 px-4 py-4 text-sm font-black text-black">پرداخت جدید</button>}
+        {(isFailed || isExpired || isCancelled) && <button onClick={newPayment} className="mt-7 w-full rounded-2xl bg-cyan-300 px-4 py-4 text-sm font-black text-black">پرداخت جدید</button>}
         <button onClick={back} className="mt-2 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">بازگشت به پنل</button>
       </div>
     </section></main>
