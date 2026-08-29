@@ -32,9 +32,7 @@ export class ZibalManualVerifyController {
         : await manager.findOne(ZibalPayment, { where: { trackId: identifier, userId }, lock: { mode: 'pessimistic_write' } });
 
       if (!payment) throw new BadRequestException('تراکنش پرداخت پیدا نشد.');
-      if (payment.status === 'SUCCESS' || payment.status === 'FAILED' || payment.status === 'EXPIRED') {
-        return { id: payment.id, alreadyProcessed: true };
-      }
+      if (payment.status === 'SUCCESS' || payment.status === 'FAILED' || payment.status === 'EXPIRED') return { id: payment.id, alreadyProcessed: true };
       if (!payment.trackId) throw new BadRequestException('شناسه تراکنش زیبال ثبت نشده است.');
 
       if (payment.lastVerifyAt) {
@@ -60,6 +58,7 @@ export class ZibalManualVerifyController {
 
   private publicPayment(payment: ZibalPayment | null) {
     if (!payment) throw new BadRequestException('تراکنش پرداخت پیدا نشد.');
+    const snapshot = (payment.gatewaySnapshot ?? {}) as Record<string, unknown>;
     return {
       id: payment.id,
       ticketId: payment.id,
@@ -68,7 +67,14 @@ export class ZibalManualVerifyController {
       amount: payment.amount,
       currency: payment.currency,
       expiresAt: payment.expiresAt,
-      gateway: { result: payment.gatewayResult, message: payment.gatewayMessage, refNumber: payment.refNumber, cardNumber: payment.cardNumber, paidAt: payment.paidAt },
+      gateway: {
+        result: payment.gatewayResult,
+        status: typeof snapshot.status === 'number' ? snapshot.status : null,
+        message: payment.gatewayMessage,
+        refNumber: payment.refNumber,
+        cardNumber: payment.cardNumber,
+        paidAt: payment.paidAt,
+      },
     };
   }
 }
