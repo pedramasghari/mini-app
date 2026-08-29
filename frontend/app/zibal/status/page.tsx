@@ -38,14 +38,21 @@ function ZibalStatusContent() {
     if (!ticketId) return;
     setChecking(true);
     try {
+      // IMPORTANT: returning from Zibal must issue a real Verify request.
+      // Do not use the read-only GET status endpoint here because the active
+      // payment may briefly return Zibal result=202 during finalization.
       const data = await api<StatusResponse>(
-        `zibal/payments/${encodeURIComponent(ticketId)}/status`,
+        `zibal/payments/${encodeURIComponent(ticketId)}/verify`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' } },
       );
       setPayment(data);
       setError('');
       if (data.status === 'SUCCESS') await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'دریافت وضعیت پرداخت انجام نشد.');
+      // A verification cooldown is expected between automatic checks.
+      // Keep showing the last known state and let the next poll retry.
+      const message = e instanceof Error ? e.message : 'دریافت وضعیت پرداخت انجام نشد.';
+      if (!message.includes('برای بررسی مجدد')) setError(message);
     } finally {
       setChecking(false);
     }
@@ -60,8 +67,7 @@ function ZibalStatusContent() {
       if (disposed) return;
       await checkStatus();
       if (!disposed) {
-        const terminal = payment?.status && payment.status !== 'PENDING';
-        if (!terminal) timer = window.setTimeout(poll, 10000);
+        timer = window.setTimeout(poll, 10000);
       }
     };
 
@@ -70,7 +76,7 @@ function ZibalStatusContent() {
       disposed = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [ticketId, checkStatus, payment?.status]);
+  }, [ticketId, checkStatus]);
 
   useEffect(() => {
     if (!payment?.expiresAt || payment.status !== 'PENDING') {
@@ -127,7 +133,7 @@ function ZibalStatusContent() {
           <p className="mt-6 text-xs font-bold text-cyan-300/70">وضعیت پرداخت زیبال</p>
           <h1 className="mt-2 text-2xl font-black">{isSuccess ? 'پرداخت با موفقیت انجام شد' : isExpired ? 'مهلت پرداخت تمام شد' : isFailed ? 'پرداخت تکمیل نشد' : 'در حال بررسی پرداخت'}</h1>
           <p className="mx-auto mt-3 max-w-lg text-sm leading-7 text-white/50">
-            {isSuccess ? 'پرداخت توسط سرور از زیبال تأیید شد و مبلغ به کیف پول شما اضافه شده است.' : isExpired ? 'مهلت ۲۰ دقیقه‌ای این درخواست تمام شده و دیگر برای آن درخواست Verify انجام نمی‌شود.' : isFailed ? 'این تراکنش ناموفق نهایی شده و دیگر به درگاه زیبال ارسال نمی‌شود. برای پرداخت مجدد یک Ticket ID جدید ایجاد کنید.' : 'وضعیت پرداخت مستقیماً از سرور و زیبال بررسی می‌شود.'}
+            {isSuccess ? 'پرداخت توسط سرور از زیبال تأیید شد و مبلغ به کیف پول شما اضافه شده است.' : isExpired ? 'مهلت ۲۰ دقیقه‌ای این درخواست تمام شده است.' : isFailed ? 'این تراکنش ناموفق نهایی شده و دیگر به درگاه زیبال ارسال نمی‌شود. برای پرداخت مجدد یک Ticket ID جدید ایجاد کنید.' : 'درخواست Verify مستقیماً از سرور به زیبال ارسال می‌شود و تا مشخص شدن نتیجه، وضعیت پرداخت بررسی خواهد شد.'}
           </p>
 
           <div className="mt-7 rounded-3xl border border-white/10 bg-white/[.03] p-5 text-right">
@@ -144,7 +150,7 @@ function ZibalStatusContent() {
           </div>
 
           {error && <p className="mt-4 rounded-2xl bg-red-400/10 p-4 text-xs leading-6 text-red-200">{error}</p>}
-          <div className="mt-5 flex items-center justify-center gap-2 text-xs text-white/30">{status === 'PENDING' ? <><span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" /> بررسی خودکار هر ۱۰ ثانیه</> : isSuccess ? '✓ موجودی کیف پول به‌روزرسانی شد' : isFailed ? '× این Ticket ID دیگر قابل پرداخت نیست' : '× درخواست منقضی شده است'}</div>
+          <div className="mt-5 flex items-center justify-center gap-2 text-xs text-white/30">{status === 'PENDING' ? <><span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" /> بررسی Verify خودکار هر ۱۰ ثانیه</> : isSuccess ? '✓ موجودی کیف پول به‌روزرسانی شد' : isFailed ? '× این Ticket ID دیگر قابل پرداخت نیست' : '× درخواست منقضی شده است'}</div>
           {status === 'PENDING' && <button onClick={() => void checkStatus()} disabled={checking} className="mt-7 w-full rounded-2xl bg-white/5 px-4 py-4 text-sm font-bold text-white/80 disabled:opacity-50"><span className="inline-flex items-center gap-2"><RefreshCw size={17} className={checking ? 'animate-spin' : ''} /> بررسی مجدد</span></button>}
           {(isFailed || isExpired) && <button onClick={newPayment} className="mt-7 w-full rounded-2xl bg-cyan-300 px-4 py-4 text-sm font-black text-black">پرداخت جدید</button>}
           <button onClick={back} className="mt-2 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">بازگشت به پنل</button>
