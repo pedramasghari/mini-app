@@ -263,7 +263,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     const payment = await this.payments.findOne({ where: { id: paymentId } });
     if (!payment?.trackId) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
     if (payment.status === 'SUCCESS') return { success: true, alreadyProcessed: true, payment };
-    if (payment.status === 'EXPIRED' || payment.status === 'FAILED') return { success: false, alreadyProcessed: true, payment };
+    if (payment.status === 'EXPIRED') return { success: false, alreadyProcessed: true, payment };
     if (payment.expiresAt && payment.expiresAt.getTime() <= Date.now()) { await this.expirePayment(payment.id); return { success: false, alreadyProcessed: true, payment: await this.payments.findOne({ where: { id: payment.id } }) }; }
 
     const result = await this.verifyWithRetry(payment.trackId);
