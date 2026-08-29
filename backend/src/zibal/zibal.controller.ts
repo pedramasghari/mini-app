@@ -33,10 +33,14 @@ export class ZibalController {
   }
 
   /**
-   * Zibal redirects the browser here after payment.
-   * The gateway trackId is resolved and verified on the backend first.
-   * Only the internal payment UUID is exposed to the authenticated status page;
-   * trackId is never used as the paymentId route parameter.
+   * Zibal sends the browser back here after the gateway flow.
+   * The browser is always moved to the frontend status page using the
+   * internal payment UUID. The status page then calls the authenticated
+   * backend status endpoint, which performs Verify against Zibal while the
+   * payment is still PENDING.
+   *
+   * Zibal callback fields (success/status) are intentionally not trusted as
+   * final payment confirmation; the backend Verify response is authoritative.
    */
   @Get('callback')
   async callback(@Query('trackId') trackId: string | undefined, @Res() res: Response) {
@@ -51,15 +55,12 @@ export class ZibalController {
       throw new BadRequestException('شناسه تراکنش پس از callback زیبال پیدا نشد.');
     }
 
-    // Zibal callback must land directly on the Mini App status page.
-    // FRONTEND_URL is the public application origin (e.g. https://app.akokala.ir).
     const frontendUrl = (process.env.FRONTEND_URL?.trim() || 'http://localhost:3000').replace(/\/+$/, '');
     const statusUrl = `${frontendUrl}/zibal/status?ticketId=${encodeURIComponent(paymentId)}`;
 
     return res.redirect(303, statusUrl);
   }
 
-  /** Authenticated status endpoint used by the Mini App after returning from Zibal. */
   @Get('payments/:paymentId/status')
   async paymentStatus(@Req() req: Request, @Param('paymentId') paymentId: string) {
     return this.zibal.getPaymentStatus(await this.userId(req), paymentId);
