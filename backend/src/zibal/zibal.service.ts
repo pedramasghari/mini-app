@@ -10,6 +10,7 @@ import { ZibalPayment } from './entities/zibal-payment.entity';
 
 const REQUEST_URL = 'https://gateway.zibal.ir/v1/request';
 const VERIFY_URL = 'https://gateway.zibal.ir/v1/verify';
+const INQUIRY_URL = 'https://gateway.zibal.ir/v1/inquiry';
 const START_URL = 'https://gateway.zibal.ir/start/';
 const MIN_PROVIDER_RIAL = 1001n;
 const PAYMENT_TTL_MS = 20 * 60 * 1000;
@@ -17,6 +18,27 @@ const RECONCILE_LOCK_KEY = 748291;
 const ZIBAL_RESULT_TRANSACTION_FAILED = 202;
 const VERIFY_RETRY_DELAY_MS = 1500;
 const VERIFY_RETRY_COUNT = 2;
+
+const ZIBAL_STATUS = {
+  PENDING: -1,
+  INTERNAL_ERROR: -2,
+  PAID_CONFIRMED: 1,
+  PAID_UNCONFIRMED: 2,
+  CANCELED: 3,
+  INVALID_CARD: 4,
+  INSUFFICIENT_BALANCE: 5,
+  WRONG_PASSWORD: 6,
+  TOO_MANY_REQUESTS: 7,
+  DAILY_PAYMENT_LIMIT: 8,
+  DAILY_PAYMENT_AMOUNT_LIMIT: 9,
+  INVALID_ISSUER: 10,
+  SWITCH_ERROR: 11,
+  CARD_UNAVAILABLE: 12,
+  REFUNDED: 15,
+  REFUNDING: 16,
+  REVERSED: 18,
+  INVALID_MERCHANT: 21,
+} as const;
 
 type ZibalResponse = {
   result?: number;
@@ -162,6 +184,81 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
+  private async inquiry(trackId: string): Promise<ZibalResponse> {
+    return this.post<ZibalResponse>(INQUIRY_URL, {
+      merchant: this.merchant(),
+      trackId: Number(trackId),
+    });
+  }
+
+  private isInquiryTerminalFailure(status?: number) {
+    return [
+      ZIBAL_STATUS.INTERNAL_ERROR,
+      ZIBAL_STATUS.CANCELED,
+      ZIBAL_STATUS.INVALID_CARD,
+      ZIBAL_STATUS.INSUFFICIENT_BALANCE,
+      ZIBAL_STATUS.WRONG_PASSWORD,
+      ZIBAL_STATUS.TOO_MANY_REQUESTS,
+      ZIBAL_STATUS.DAILY_PAYMENT_LIMIT,
+      ZIBAL_STATUS.DAILY_PAYMENT_AMOUNT_LIMIT,
+      ZIBAL_STATUS.INVALID_ISSUER,
+      ZIBAL_STATUS.SWITCH_ERROR,
+      ZIBAL_STATUS.CARD_UNAVAILABLE,
+      ZIBAL_STATUS.REFUNDED,
+      ZIBAL_STATUS.REFUNDING,
+      ZIBAL_STATUS.REVERSED,
+      ZIBAL_STATUS.INVALID_MERCHANT,
+    ].includes(status as any);
+  }
+
+  private async handle202Inquiry(paymentId: string, trackId: string) {
+    const inquiryResult = await this.inquiry(trackId);
+    const inquiryStatus = inquiryResult.status;
+
+    this.logger.warn(`Zibal verify returned 202 for ${paymentId}; inquiry status=${String(inquiryStatus)}`);
+
+    await this.payments.update(paymentId, {
+      gatewayResult: inquiryResult.result == null ? String(ZIBAL_RESULT_TRANSACTION_FAILED) : String(inquiryResult.result),
+      gatewayMessage: inquiryResult.message ?? null,
+      gatewaySnapshot: { ...inquiryResult, inquiryStatus } as any,
+    });
+
+    // 1 = paid and confirmed. Only this state can credit the wallet.
+    if (inquiryStatus === ZIBAL_STATUS.PAID_CONFIRMED) {
+      return this.settleSuccessfulPayment(paymentId, inquiryResult);
+    }
+
+    // -1 = waiting for payment, 2 = paid but not confirmed yet.
+    // Keep the local payment pending so reconciliation can inquire again.
+    if (inquiryStatus === ZIBAL_STATUS.PENDING || inquiryStatus === ZIBAL_STATUS.PAID_UNCONFIRMED) {
+      await this.payments.update(paymentId, {
+        status: 'PENDING',
+        failureReason: null,
+        gatewaySnapshot: { ...inquiryResult, inquiryStatus } as any,
+      });
+      return {
+        success: false,
+        alreadyProcessed: false,
+        payment: await this.payments.findOne({ where: { id: paymentId } }),
+        gateway: inquiryResult,
+      };
+    }
+
+    const failureReason = inquiryResult.message ?? `وضعیت تراکنش زیبال: ${String(inquiryStatus ?? 'نامشخص')}`;
+    await this.payments.update(paymentId, {
+      status: 'FAILED',
+      failureReason,
+      gatewaySnapshot: { ...inquiryResult, inquiryStatus } as any,
+    });
+
+    return {
+      success: false,
+      alreadyProcessed: false,
+      payment: await this.payments.findOne({ where: { id: paymentId } }),
+      gateway: inquiryResult,
+    };
+  }
+
   async verifyAndSettle(paymentId: string) {
     const payment = await this.payments.findOne({ where: { id: paymentId } });
     if (!payment?.trackId) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
@@ -169,17 +266,19 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     if (payment.status === 'EXPIRED' || payment.status === 'FAILED') return { success: false, alreadyProcessed: true, payment };
     if (payment.expiresAt && payment.expiresAt.getTime() <= Date.now()) { await this.expirePayment(payment.id); return { success: false, alreadyProcessed: true, payment: await this.payments.findOne({ where: { id: payment.id } }) }; }
 
-    // Do not immediately persist 202 as FAILED. Zibal can briefly return
-    // { result: 202, message: 'transaction failed' } while the gateway is
-    // still finalizing the transaction. A short bounded retry prevents a real
-    // successful payment from becoming permanently FAILED. If all retries
-    // remain 202, the result is terminal and the payment becomes FAILED.
     const result = await this.verifyWithRetry(payment.trackId);
+
+    // 202 from verify is not enough to mark the payment failed. Ask Zibal
+    // for the authoritative transaction state using the inquiry endpoint.
+    if (result.result === ZIBAL_RESULT_TRANSACTION_FAILED) {
+      return this.handle202Inquiry(payment.id, payment.trackId);
+    }
+
     const isSuccess = (result.result === 100 || result.result === 201) && result.status === 1;
 
     if (!isSuccess) {
-      const stillPending = result.result !== ZIBAL_RESULT_TRANSACTION_FAILED && result.status === -1;
-      const failureReason = result.message ?? (result.result === ZIBAL_RESULT_TRANSACTION_FAILED ? 'تراکنش توسط زیبال ناموفق اعلام شد.' : 'پرداخت موفق نبود.');
+      const stillPending = result.status === -1;
+      const failureReason = result.message ?? 'پرداخت موفق نبود.';
       await this.payments.update(payment.id, { status: stillPending ? 'PENDING' : 'FAILED', gatewayResult: result.result == null ? null : String(result.result), gatewayMessage: result.message ?? null, gatewaySnapshot: { ...result } as any, failureReason: stillPending ? null : failureReason });
       return { success: false, alreadyProcessed: false, payment: await this.payments.findOne({ where: { id: payment.id } }), gateway: result };
     }
