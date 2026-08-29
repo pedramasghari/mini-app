@@ -14,6 +14,7 @@ import { ZibalService } from './zibal.service';
 
 const COOKIE = 'miniapp_session';
 const VERIFY_COOLDOWN_MS = 5_000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Controller('zibal')
 export class ZibalManualVerifyController {
@@ -33,12 +34,15 @@ export class ZibalManualVerifyController {
   async verify(@Req() req: Request, @Param('paymentId') paymentId: string) {
     const userId = await this.userId(req);
     const now = Date.now();
+    const identifier = String(paymentId ?? '').trim();
+    if (!identifier) throw new BadRequestException('شناسه پرداخت الزامی است.');
 
     const prepared = await this.dataSource.transaction(async (manager) => {
-      const payment = await manager.findOne(ZibalPayment, {
-        where: { id: paymentId, userId },
-        lock: { mode: 'pessimistic_write' },
-      });
+      // Ticket ID is our UUID; Zibal Track ID is numeric/string. Resolve the
+      // identifier before querying so PostgreSQL never casts a trackId to UUID.
+      const payment = UUID_RE.test(identifier)
+        ? await manager.findOne(ZibalPayment, { where: { id: identifier, userId }, lock: { mode: 'pessimistic_write' } })
+        : await manager.findOne(ZibalPayment, { where: { trackId: identifier, userId }, lock: { mode: 'pessimistic_write' } });
 
       if (!payment) throw new BadRequestException('تراکنش پرداخت پیدا نشد.');
       if (payment.status === 'SUCCESS') return { id: payment.id, alreadySuccessful: true };
