@@ -71,8 +71,6 @@ export class SmsCodeFinishService {
     if (['COMPLETED', 'SUCCESS'].includes(current.status)) {
       row.status = 'COMPLETED';
       row.providerSnapshot = current;
-      row.otpCode = current.otp_code ?? row.otpCode;
-      row.otpMessage = current.otp_message ?? row.otpMessage;
       await this.orders.save(row);
       return {
         id: row.id,
@@ -80,8 +78,8 @@ export class SmsCodeFinishService {
         status: 'COMPLETED',
         phoneNumber: current.phone_number ?? row.phoneNumber,
         expiresAt: current.expires_at ?? row.expiresAt?.toISOString() ?? null,
-        otpCode: current.otp_code ?? row.otpCode ?? null,
-        otpMessage: current.otp_message ?? row.otpMessage ?? null,
+        otpCode: current.otp_code ?? null,
+        otpMessage: current.otp_message ?? null,
         smsRevision: current.sms_revision ?? row.smsRevision,
         refunded: Boolean(row.refundedAt),
       };
@@ -107,8 +105,6 @@ export class SmsCodeFinishService {
     row.status = 'COMPLETED';
     row.phoneNumber = provider.phone_number ?? row.phoneNumber;
     row.expiresAt = provider.expires_at ? new Date(provider.expires_at) : row.expiresAt;
-    row.otpCode = provider.otp_code ?? row.otpCode;
-    row.otpMessage = provider.otp_message ?? row.otpMessage;
     row.smsRevision = Math.max(row.smsRevision, Number(provider.sms_revision ?? 0));
     row.canResend = false;
     row.canCancel = false;
@@ -129,8 +125,8 @@ export class SmsCodeFinishService {
       status: 'COMPLETED',
       phoneNumber: provider.phone_number ?? row.phoneNumber,
       expiresAt: provider.expires_at ?? row.expiresAt?.toISOString() ?? null,
-      otpCode: provider.otp_code ?? row.otpCode ?? null,
-      otpMessage: provider.otp_message ?? row.otpMessage ?? null,
+      otpCode: provider.otp_code ?? null,
+      otpMessage: provider.otp_message ?? null,
       smsRevision: provider.sms_revision ?? row.smsRevision,
       refunded: Boolean(row.refundedAt),
     };
