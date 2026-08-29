@@ -91,7 +91,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       });
       const text = await response.text();
       let data: unknown;
-      try { data = JSON.parse(text); } catch { throw new BadRequestException('پاسخ نامعتبر از زیبال دریافت شد.'); }
+      try { data = JSON.parse(text); console.log(`Zibal Response: ${JSON.stringify(data)}`); } catch { throw new BadRequestException('پاسخ نامعتبر از زیبال دریافت شد.'); }
       if (!response.ok) throw new BadRequestException((data as { message?: string })?.message ?? 'خطا در ارتباط با زیبال.');
       return data as T;
     } finally {
