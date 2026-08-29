@@ -128,7 +128,7 @@ export class WithdrawalsService {
     return { items, page, limit, total, pages: Math.ceil(total / limit) };
   }
 
-  /** Combined deposit + withdrawal requests. Pagination and sorting are performed by PostgreSQL. */
+  /** Combined card-transfer + Zibal deposit + withdrawal requests. */
   async listWalletRequests(
     userId: string,
     page = 1,
@@ -143,7 +143,7 @@ export class WithdrawalsService {
       throw new BadRequestException('نوع درخواست نامعتبر است.');
     const normalizedStatus = status ? String(status).trim().toUpperCase() : '';
     const allowedStatus =
-      normalizedStatus && ['PENDING', 'COMPLETED', 'CANCELLED', 'APPROVED', 'REJECTED'].includes(normalizedStatus)
+      normalizedStatus && ['PENDING', 'COMPLETED', 'CANCELLED', 'APPROVED', 'REJECTED', 'SUCCESS', 'FAILED', 'EXPIRED'].includes(normalizedStatus)
         ? normalizedStatus
         : '';
     if (status && !allowedStatus) throw new BadRequestException('وضعیت درخواست نامعتبر است.');
@@ -157,17 +157,31 @@ export class WithdrawalsService {
       conditions.push(`status = $${params.length}`);
     }
     const where = conditions.join(' AND ');
+
     const union = `
-      SELECT id, "userId", 'WITHDRAWAL' AS kind, amount, currency, status, "createdAt", "completedAt", "cancelledAt", NULL::timestamptz AS "rejectedAt", "receiptPath", "cardNumber", "cardHolderName", NULL::text AS "adminReason"
+      SELECT id, "userId", 'WITHDRAWAL' AS kind, amount, currency, status, "createdAt", "completedAt", "cancelledAt", NULL::timestamptz AS "rejectedAt", "receiptPath", "cardNumber", "cardHolderName", NULL::text AS "adminReason",
+             NULL::text AS "gateway", NULL::text AS "gatewayTrackId", NULL::text AS "gatewayResult", NULL::text AS "gatewayMessage", NULL::text AS "gatewayRefNumber", NULL::timestamptz AS "gatewayPaidAt"
       FROM withdrawal_requests
       UNION ALL
-      SELECT id, "userId", 'DEPOSIT' AS kind, amount, currency, status, "createdAt", NULL::timestamptz AS "completedAt", NULL::timestamptz AS "cancelledAt", NULL::timestamptz AS "rejectedAt", "receiptPath", NULL::text AS "cardNumber", NULL::text AS "cardHolderName", "adminReason"
+      SELECT id, "userId", 'DEPOSIT' AS kind, amount, currency, status, "createdAt", NULL::timestamptz AS "completedAt", NULL::timestamptz AS "cancelledAt", NULL::timestamptz AS "rejectedAt", "receiptPath", NULL::text AS "cardNumber", NULL::text AS "cardHolderName", "adminReason",
+             'CARD_TRANSFER'::text AS "gateway", NULL::text AS "gatewayTrackId", NULL::text AS "gatewayResult", NULL::text AS "gatewayMessage", NULL::text AS "gatewayRefNumber", NULL::timestamptz AS "gatewayPaidAt"
       FROM payment_requests
+      UNION ALL
+      SELECT id, "userId", 'DEPOSIT' AS kind, amount, currency, status, "createdAt", NULL::timestamptz AS "completedAt", NULL::timestamptz AS "cancelledAt", NULL::timestamptz AS "rejectedAt", NULL::text AS "receiptPath", NULL::text AS "cardNumber", NULL::text AS "cardHolderName", failureReason AS "adminReason",
+             'ZIBAL'::text AS "gateway", CAST("trackId" AS text) AS "gatewayTrackId", "gatewayResult", "gatewayMessage", "refNumber" AS "gatewayRefNumber", "paidAt" AS "gatewayPaidAt"
+      FROM zibal_payments
     `;
+
+    // Zibal statuses intentionally stay SUCCESS/FAILED/EXPIRED in the API so
+    // the UI can distinguish a gateway result from a manual card-transfer review.
     const offset = (page - 1) * limit;
     const dataParams = [...params, limit, offset];
     const rows = await this.dataSource.query(
-      `SELECT id, kind, amount, currency, status, "createdAt", "completedAt", "cancelledAt", "rejectedAt", "receiptPath", "cardNumber", "cardHolderName", "adminReason" FROM (${union}) requests WHERE ${where} ORDER BY CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END, "createdAt" DESC LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+      `SELECT id, kind, amount, currency, status, "createdAt", "completedAt", "cancelledAt", "rejectedAt", "receiptPath", "cardNumber", "cardHolderName", "adminReason", "gateway", "gatewayTrackId", "gatewayResult", "gatewayMessage", "gatewayRefNumber", "gatewayPaidAt"
+       FROM (${union}) requests
+       WHERE ${where}
+       ORDER BY CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END, "createdAt" DESC
+       LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
       dataParams,
     );
     const count = await this.dataSource.query(

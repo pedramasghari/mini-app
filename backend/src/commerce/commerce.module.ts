@@ -5,6 +5,7 @@ import { WalletsModule } from '../wallets/wallets.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { Wallet } from '../wallets/entities/wallet.entity';
 import { User } from '../users/entities/user.entity';
+import { ZibalPayment } from '../zibal/entities/zibal-payment.entity';
 import { ActivationGuide, ActivationProgress, ActivationStep, Order, OrderInput, PaymentMethod, PaymentRequest, Product, Service, ServiceSmsConfig, SmsCodeOrder, SmsCodeWebhookEvent, WalletTransaction } from './entities/commerce.entity';
 import { NumberOrder } from './entities/number-order.entity';
 import { CommerceService } from './commerce.service';
@@ -37,6 +38,7 @@ import { WalletTransactionsController } from './wallet-transactions.controller';
       PaymentRequest,
       WalletTransaction,
       NumberOrder,
+      ZibalPayment,
     ]),
   ],
   controllers: [CommerceController, NumberOrdersController, WalletTransactionsController],

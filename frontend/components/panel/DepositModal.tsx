@@ -10,8 +10,8 @@ type PaymentMode = 'ONLINE' | 'CARD';
 type Payment = {
   id: string;
   ticketId: string;
-  paymentUrl: string;
-  trackId: string;
+  paymentUrl: string | null;
+  trackId: string | null;
   amount: string;
   currency: string;
   expiresAt: string;
@@ -60,16 +60,13 @@ export default function DepositModal() {
         body: JSON.stringify({ amount: String(numeric) }),
       });
 
-      // Open the gateway in the user's browser first. The Mini App never waits
-      // for Zibal's callback and immediately moves to its own status page.
-      const opened = window.open(payment.paymentUrl, '_blank', 'noopener,noreferrer');
-      if (!opened) {
-        setError('مرورگر اجازه باز کردن درگاه را نداد. لطفاً اجازه باز شدن پنجره را بدهید و دوباره تلاش کنید.');
-        setBusy(false);
+      if (!payment.paymentUrl || !payment.ticketId) {
+        throw new Error('لینک درگاه زیبال دریافت نشد.');
       }
 
-      const statusUrl = `/zibal/status?ticketId=${encodeURIComponent(payment.ticketId)}`;
-      window.location.assign(statusUrl);
+      // Keep the gateway in the current Mini App tab. Opening a second browser
+      // tab/window causes Telegram WebView to lose the Mini App session on some clients.
+      window.location.assign(payment.paymentUrl);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'ایجاد پرداخت آنلاین انجام نشد.');
       setBusy(false);
@@ -136,7 +133,7 @@ export default function DepositModal() {
         {mode === 'ONLINE' && (
           <div className="mt-5 rounded-3xl border border-cyan-300/15 bg-cyan-300/[.04] p-5">
             <h3 className="font-black">پرداخت امن با زیبال</h3>
-            <p className="mt-2 text-sm leading-6 text-white/50">پس از ثبت درخواست، درگاه زیبال در مرورگر باز می‌شود و Mini App شما به صفحه اختصاصی وضعیت پرداخت منتقل می‌شود.</p>
+            <p className="mt-2 text-sm leading-6 text-white/50">درگاه زیبال در همین تب باز می‌شود و پس از پرداخت، نتیجه از سرور بررسی و در صفحه وضعیت نمایش داده می‌شود.</p>
             {error && <p className="mt-4 rounded-xl bg-red-400/10 p-3 text-xs text-red-200">{error}</p>}
             <button type="button" disabled={busy || !zibal?.enabled || !validAmount} onClick={onlinePayment} className="mt-5 w-full rounded-2xl bg-cyan-300 px-4 py-4 text-sm font-black text-black disabled:opacity-40">{busy ? 'در حال ایجاد درخواست…' : 'ادامه و پرداخت آنلاین'}</button>
           </div>

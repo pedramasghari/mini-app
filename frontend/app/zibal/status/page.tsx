@@ -11,10 +11,18 @@ type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
 type StatusResponse = {
   id: string;
   ticketId: string;
+  trackId: string | null;
   status: PaymentStatus;
   amount: string;
   currency: string;
   expiresAt: string | null;
+  gateway?: {
+    result: string | null;
+    message: string | null;
+    refNumber: string | null;
+    cardNumber: string | null;
+    paidAt: string | null;
+  };
 };
 
 function ZibalStatusContent() {
@@ -51,7 +59,10 @@ function ZibalStatusContent() {
     const poll = async () => {
       if (disposed) return;
       await checkStatus();
-      if (!disposed) timer = window.setTimeout(poll, 10000);
+      if (!disposed) {
+        const terminal = payment?.status && payment.status !== 'PENDING';
+        if (!terminal) timer = window.setTimeout(poll, 10000);
+      }
     };
 
     void poll();
@@ -59,7 +70,7 @@ function ZibalStatusContent() {
       disposed = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [ticketId, checkStatus]);
+  }, [ticketId, checkStatus, payment?.status]);
 
   useEffect(() => {
     if (!payment?.expiresAt || payment.status !== 'PENDING') {
@@ -78,6 +89,7 @@ function ZibalStatusContent() {
   }, [payment?.expiresAt, payment?.status]);
 
   const back = () => window.location.assign('/panel');
+  const newPayment = () => window.location.assign('/panel/wallet/deposit');
 
   if (!ticketId) {
     return (
@@ -115,7 +127,7 @@ function ZibalStatusContent() {
           <p className="mt-6 text-xs font-bold text-cyan-300/70">وضعیت پرداخت زیبال</p>
           <h1 className="mt-2 text-2xl font-black">{isSuccess ? 'پرداخت با موفقیت انجام شد' : isExpired ? 'مهلت پرداخت تمام شد' : isFailed ? 'پرداخت تکمیل نشد' : 'در حال بررسی پرداخت'}</h1>
           <p className="mx-auto mt-3 max-w-lg text-sm leading-7 text-white/50">
-            {isSuccess ? 'پرداخت توسط سرور از زیبال تأیید شد و مبلغ به کیف پول شما اضافه شده است.' : isExpired ? 'مهلت ۲۰ دقیقه‌ای این درخواست تمام شده و دیگر برای آن درخواست Verify انجام نمی‌شود.' : isFailed ? 'نتیجه پرداخت توسط سرور بررسی شده و این پرداخت موفق تشخیص داده نشده است.' : 'این صفحه را باز بگذارید؛ وضعیت پرداخت مستقیماً از سرور به‌روزرسانی می‌شود و به Callback مرورگر وابسته نیست.'}
+            {isSuccess ? 'پرداخت توسط سرور از زیبال تأیید شد و مبلغ به کیف پول شما اضافه شده است.' : isExpired ? 'مهلت ۲۰ دقیقه‌ای این درخواست تمام شده و دیگر برای آن درخواست Verify انجام نمی‌شود.' : isFailed ? 'این تراکنش ناموفق نهایی شده و دیگر به درگاه زیبال ارسال نمی‌شود. برای پرداخت مجدد یک Ticket ID جدید ایجاد کنید.' : 'وضعیت پرداخت مستقیماً از سرور و زیبال بررسی می‌شود.'}
           </p>
 
           <div className="mt-7 rounded-3xl border border-white/10 bg-white/[.03] p-5 text-right">
@@ -123,13 +135,18 @@ function ZibalStatusContent() {
             {payment && <>
               <div className="mt-3 flex items-center justify-between text-sm"><span className="text-white/40">مبلغ</span><strong>{fa(Number(payment.amount))} {payment.currency}</strong></div>
               <div className="mt-3 flex items-center justify-between text-sm"><span className="text-white/40">وضعیت</span><strong className={isSuccess ? 'text-emerald-300' : isFailed || isExpired ? 'text-red-300' : 'text-amber-300'}>{isSuccess ? 'موفق' : isExpired ? 'منقضی شده' : isFailed ? 'ناموفق' : 'در حال بررسی'}</strong></div>
+              {payment.trackId && <div className="mt-3 flex items-center justify-between gap-4 text-sm"><span className="text-white/40">Track ID</span><span dir="ltr" className="font-mono text-xs text-white/55">{payment.trackId}</span></div>}
+              {payment.gateway?.result && <div className="mt-3 flex items-center justify-between gap-4 text-sm"><span className="text-white/40">کد زیبال</span><span dir="ltr" className="font-mono text-xs text-white/55">{payment.gateway.result}</span></div>}
+              {payment.gateway?.refNumber && <div className="mt-3 flex items-center justify-between gap-4 text-sm"><span className="text-white/40">شماره مرجع</span><span dir="ltr" className="font-mono text-xs text-white/55">{payment.gateway.refNumber}</span></div>}
+              {payment.gateway?.message && <div className="mt-3 rounded-2xl bg-white/[.04] p-3 text-xs text-white/50">پیام زیبال: {payment.gateway.message}</div>}
               {status === 'PENDING' && remaining && <div className="mt-3 flex items-center justify-between text-sm"><span className="text-white/40">زمان باقی‌مانده</span><strong dir="ltr" className="text-amber-300">{remaining}</strong></div>}
             </>}
           </div>
 
           {error && <p className="mt-4 rounded-2xl bg-red-400/10 p-4 text-xs leading-6 text-red-200">{error}</p>}
-          <div className="mt-5 flex items-center justify-center gap-2 text-xs text-white/30">{status === 'PENDING' ? <><span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" /> بررسی خودکار هر ۱۰ ثانیه</> : isSuccess ? '✓ موجودی کیف پول به‌روزرسانی شد' : isFailed ? '× نتیجه نهایی از سرور دریافت شد' : '× درخواست منقضی شده است'}</div>
-          <button onClick={() => void checkStatus()} disabled={checking} className="mt-7 w-full rounded-2xl bg-white/5 px-4 py-4 text-sm font-bold text-white/80 disabled:opacity-50"><span className="inline-flex items-center gap-2"><RefreshCw size={17} className={checking ? 'animate-spin' : ''} /> بررسی مجدد</span></button>
+          <div className="mt-5 flex items-center justify-center gap-2 text-xs text-white/30">{status === 'PENDING' ? <><span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" /> بررسی خودکار هر ۱۰ ثانیه</> : isSuccess ? '✓ موجودی کیف پول به‌روزرسانی شد' : isFailed ? '× این Ticket ID دیگر قابل پرداخت نیست' : '× درخواست منقضی شده است'}</div>
+          {status === 'PENDING' && <button onClick={() => void checkStatus()} disabled={checking} className="mt-7 w-full rounded-2xl bg-white/5 px-4 py-4 text-sm font-bold text-white/80 disabled:opacity-50"><span className="inline-flex items-center gap-2"><RefreshCw size={17} className={checking ? 'animate-spin' : ''} /> بررسی مجدد</span></button>}
+          {(isFailed || isExpired) && <button onClick={newPayment} className="mt-7 w-full rounded-2xl bg-cyan-300 px-4 py-4 text-sm font-black text-black">پرداخت جدید</button>}
           <button onClick={back} className="mt-2 w-full rounded-2xl bg-white px-4 py-4 text-sm font-black text-black">بازگشت به پنل</button>
         </div>
       </section>

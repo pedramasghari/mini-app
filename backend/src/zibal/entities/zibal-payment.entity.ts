@@ -3,6 +3,7 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Update
 @Entity('zibal_payments')
 @Index('uq_zibal_track_id', ['trackId'], { unique: true })
 @Index('uq_zibal_order_id', ['orderId'], { unique: true })
+@Index('uq_zibal_pending_user', ['userId'], { unique: true, where: '"status" = \'PENDING\'' })
 @Index('idx_zibal_pending_created', ['status', 'createdAt'])
 @Index('idx_zibal_pending_expires', ['status', 'expiresAt'])
 export class ZibalPayment {
