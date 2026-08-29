@@ -13,6 +13,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CommerceService } from './commerce.service';
 import { Product, ServiceSmsConfig, SmsCodeOrder } from './entities/commerce.entity';
 import { SmsCodeService } from './smscode.service';
+import { SmsCodeFinishService } from './smscode-finish.service';
 
 const COOKIE = 'miniapp_session';
 mkdirSync('./uploads/receipts', { recursive: true });
@@ -49,6 +50,7 @@ export class CommerceController {
     private readonly auth: AuthService,
     private readonly notifications: NotificationsService,
     private readonly smsCode: SmsCodeService,
+    private readonly smsCodeFinish: SmsCodeFinishService,
     @InjectRepository(SmsCodeOrder) private readonly smsOrders: Repository<SmsCodeOrder>,
     @InjectRepository(ServiceSmsConfig) private readonly smsConfigs: Repository<ServiceSmsConfig>,
   ) {}
@@ -145,6 +147,10 @@ export class CommerceController {
 
   @Post('smscode/orders/:id/resend') async resendSms(@Req() req: Request, @Param('id') id: string) {
     return this.smsCode.resend(await this.userId(req), id);
+  }
+
+  @Post('smscode/orders/:id/finish') async finishSms(@Req() req: Request, @Param('id') id: string) {
+    return this.smsCodeFinish.finish(await this.userId(req), id);
   }
 
   @Post('smscode/orders/:id/cancel') async cancelSms(@Req() req: Request, @Param('id') id: string) {
