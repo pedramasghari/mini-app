@@ -32,13 +32,9 @@ export class ZibalController {
   }
 
   /**
-   * Zibal sends the browser back here after the gateway flow.
-   * Do NOT verify here: the user must land on /zibal/status first and that
-   * authenticated status request performs Verify against Zibal. This avoids
-   * a race where an immediate callback Verify can receive result=202 while
-   * Zibal is still finalizing the transaction, causing a false FAILED state.
-   *
-   * Zibal callback fields are not treated as final payment confirmation.
+   * Zibal callback is only a navigation event. It is deliberately NOT used
+   * as payment confirmation. The browser is redirected to the status page,
+   * where the authenticated frontend request calls the server Verify endpoint.
    * The Verify response from Zibal is authoritative.
    */
   @Get('callback')
