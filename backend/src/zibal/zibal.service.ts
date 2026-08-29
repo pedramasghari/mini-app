@@ -14,6 +14,9 @@ const START_URL = 'https://gateway.zibal.ir/start/';
 const MIN_PROVIDER_RIAL = 1001n;
 const PAYMENT_TTL_MS = 20 * 60 * 1000;
 const RECONCILE_LOCK_KEY = 748291;
+const ZIBAL_RESULT_TRANSACTION_FAILED = 202;
+const VERIFY_RETRY_DELAY_MS = 1500;
+const VERIFY_RETRY_COUNT = 2;
 
 type ZibalResponse = {
   result?: number;
@@ -83,32 +86,21 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => controller.abort(), timeout);
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
+      const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
       const text = await response.text();
       let data: unknown;
-      try { data = JSON.parse(text); console.log(`Zibal Response: ${JSON.stringify(data)}`); } catch { throw new BadRequestException('پاسخ نامعتبر از زیبال دریافت شد.'); }
+      try { data = JSON.parse(text); this.logger.log(`Zibal Response: ${JSON.stringify(data)}`); } catch { throw new BadRequestException('پاسخ نامعتبر از زیبال دریافت شد.'); }
       if (!response.ok) throw new BadRequestException((data as { message?: string })?.message ?? 'خطا در ارتباط با زیبال.');
       return data as T;
-    } finally {
-      clearTimeout(timeoutHandle);
-    }
+    } finally { clearTimeout(timeoutHandle); }
   }
 
   async createPayment(userId: string, amountValue: string) {
     const amount = this.parseAmount(amountValue);
     const existing = await this.payments.findOne({ where: { userId, status: 'PENDING' }, order: { createdAt: 'DESC' } });
-    if (existing && existing.expiresAt && existing.expiresAt.getTime() > Date.now()) {
-      return { id: existing.id, ticketId: existing.id, trackId: existing.trackId, paymentUrl: existing.trackId ? `${START_URL}${existing.trackId}` : null, amount: existing.amount, currency: existing.currency, expiresAt: existing.expiresAt };
-    }
+    if (existing && existing.expiresAt && existing.expiresAt.getTime() > Date.now()) return { id: existing.id, ticketId: existing.id, trackId: existing.trackId, paymentUrl: existing.trackId ? `${START_URL}${existing.trackId}` : null, amount: existing.amount, currency: existing.currency, expiresAt: existing.expiresAt };
     if (existing) await this.expirePayment(existing.id);
-    const payment = await this.payments.save(this.payments.create({
-      userId, orderId: randomUUID(), amount: amount.toString(), gatewayAmount: (amount * 10n).toString(), currency: 'IRT', status: 'PENDING', expiresAt: new Date(Date.now() + PAYMENT_TTL_MS),
-    }));
+    const payment = await this.payments.save(this.payments.create({ userId, orderId: randomUUID(), amount: amount.toString(), gatewayAmount: (amount * 10n).toString(), currency: 'IRT', status: 'PENDING', expiresAt: new Date(Date.now() + PAYMENT_TTL_MS) }));
     try {
       const result = await this.post<ZibalResponse>(REQUEST_URL, { merchant: this.merchant(), amount: Number(payment.gatewayAmount), callbackUrl: this.callbackUrl(), orderId: payment.orderId, description: `Wallet deposit ${payment.id}` });
       if (result.result !== 100 || result.trackId === undefined) {
@@ -135,16 +127,8 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
   async getPaymentStatus(userId: string, paymentId: string) {
     const identifier = String(paymentId ?? '').trim();
     if (!identifier) throw new BadRequestException('شناسه پرداخت الزامی است.');
-
-    // The public ticket is the internal payment UUID. Keep a defensive fallback
-    // for older callback URLs that accidentally exposed Zibal's numeric trackId.
-    // Validate before querying the UUID column so PostgreSQL never receives a
-    // numeric trackId for a uuid parameter (SQLSTATE 22P02).
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identifier);
-    const payment = isUuid
-      ? await this.payments.findOne({ where: { id: identifier, userId } })
-      : await this.payments.findOne({ where: { trackId: identifier, userId } });
-
+    const payment = isUuid ? await this.payments.findOne({ where: { id: identifier, userId } }) : await this.payments.findOne({ where: { trackId: identifier, userId } });
     if (!payment) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
     if (payment.status === 'PENDING') {
       if (payment.expiresAt && payment.expiresAt.getTime() <= Date.now()) await this.expirePayment(payment.id);
@@ -152,20 +136,30 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     }
     const latest = await this.payments.findOne({ where: { id: payment.id, userId } });
     if (!latest) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
-    return {
-      id: latest.id, ticketId: latest.id, trackId: latest.trackId, status: this.publicStatus(latest.status), amount: latest.amount, currency: latest.currency, expiresAt: latest.expiresAt,
-      gateway: { result: latest.gatewayResult, message: latest.gatewayMessage, refNumber: latest.refNumber, cardNumber: latest.cardNumber, paidAt: latest.paidAt },
-    };
+    const snapshot = (latest.gatewaySnapshot ?? {}) as Record<string, unknown>;
+    return { id: latest.id, ticketId: latest.id, trackId: latest.trackId, status: this.publicStatus(latest.status), amount: latest.amount, currency: latest.currency, expiresAt: latest.expiresAt, gateway: { result: latest.gatewayResult, status: typeof snapshot.status === 'number' ? snapshot.status : null, message: latest.gatewayMessage, refNumber: latest.refNumber, cardNumber: latest.cardNumber, paidAt: latest.paidAt } };
   }
 
   async getStatus(userId: string, paymentId: string) { return this.getPaymentStatus(userId, paymentId); }
 
   private publicStatus(value?: string): PublicPaymentStatus {
-    if (value === 'SUCCESS') return 'SUCCESS'; if (value === 'FAILED') return 'FAILED'; if (value === 'EXPIRED') return 'EXPIRED'; return 'PENDING';
+    if (value === 'SUCCESS') return 'SUCCESS';
+    if (value === 'FAILED') return 'FAILED';
+    if (value === 'EXPIRED') return 'EXPIRED';
+    return 'PENDING';
   }
 
   private async expirePayment(paymentId: string) {
     await this.payments.createQueryBuilder().update(ZibalPayment).set({ status: 'EXPIRED', failureReason: 'مهلت ۲۰ دقیقه‌ای پرداخت به پایان رسید.' }).where('id = :id', { id: paymentId }).andWhere('status = :status', { status: 'PENDING' }).execute();
+  }
+
+  private async verifyWithRetry(trackId: string): Promise<ZibalResponse> {
+    let result = await this.post<ZibalResponse>(VERIFY_URL, { merchant: this.merchant(), trackId: Number(trackId) });
+    for (let attempt = 0; attempt < VERIFY_RETRY_COUNT && result.result === ZIBAL_RESULT_TRANSACTION_FAILED; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, VERIFY_RETRY_DELAY_MS));
+      result = await this.post<ZibalResponse>(VERIFY_URL, { merchant: this.merchant(), trackId: Number(trackId) });
+    }
+    return result;
   }
 
   async verifyAndSettle(paymentId: string) {
@@ -174,11 +168,19 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     if (payment.status === 'SUCCESS') return { success: true, alreadyProcessed: true, payment };
     if (payment.status === 'EXPIRED' || payment.status === 'FAILED') return { success: false, alreadyProcessed: true, payment };
     if (payment.expiresAt && payment.expiresAt.getTime() <= Date.now()) { await this.expirePayment(payment.id); return { success: false, alreadyProcessed: true, payment: await this.payments.findOne({ where: { id: payment.id } }) }; }
-    const result = await this.post<ZibalResponse>(VERIFY_URL, { merchant: this.merchant(), trackId: Number(payment.trackId) });
+
+    // Do not immediately persist 202 as FAILED. Zibal can briefly return
+    // { result: 202, message: 'transaction failed' } while the gateway is
+    // still finalizing the transaction. A short bounded retry prevents a real
+    // successful payment from becoming permanently FAILED. If all retries
+    // remain 202, the result is terminal and the payment becomes FAILED.
+    const result = await this.verifyWithRetry(payment.trackId);
     const isSuccess = (result.result === 100 || result.result === 201) && result.status === 1;
+
     if (!isSuccess) {
-      const stillPending = result.status === -1;
-      await this.payments.update(payment.id, { status: stillPending ? 'PENDING' : 'FAILED', gatewayResult: result.result == null ? null : String(result.result), gatewayMessage: result.message ?? null, gatewaySnapshot: { ...result } as any, failureReason: stillPending ? null : (result.message ?? 'پرداخت موفق نبود.') });
+      const stillPending = result.result !== ZIBAL_RESULT_TRANSACTION_FAILED && result.status === -1;
+      const failureReason = result.message ?? (result.result === ZIBAL_RESULT_TRANSACTION_FAILED ? 'تراکنش توسط زیبال ناموفق اعلام شد.' : 'پرداخت موفق نبود.');
+      await this.payments.update(payment.id, { status: stillPending ? 'PENDING' : 'FAILED', gatewayResult: result.result == null ? null : String(result.result), gatewayMessage: result.message ?? null, gatewaySnapshot: { ...result } as any, failureReason: stillPending ? null : failureReason });
       return { success: false, alreadyProcessed: false, payment: await this.payments.findOne({ where: { id: payment.id } }), gateway: result };
     }
     return this.settleSuccessfulPayment(payment.id, result);
