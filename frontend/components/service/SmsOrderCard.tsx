@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Loader2, Phone, RefreshCw, X } from "lucide-react";
+import { Check, Copy, Loader2, Phone, RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useSmsCode } from "@/modules/smscode/SmsCodeProvider";
@@ -81,11 +81,12 @@ function formatPhone(phoneNumber: string | null, countryCode?: string | null, co
 }
 
 export default function SmsOrderCard({ order, onChange, onRemove }: Props) {
-  const { resend: resendOrder, cancel: cancelOrder } = useSmsCode();
+  const { resend: resendOrder, finish: finishOrder, cancel: cancelOrder } = useSmsCode();
   const [timer, setTimer] = useState(() => remaining(order.expiresAt));
-  const [action, setAction] = useState<"resend" | "cancel" | null>(null);
+  const [action, setAction] = useState<"resend" | "finish" | "cancel" | null>(null);
   const [copied, setCopied] = useState(false);
   const displayPhone = useMemo(() => formatPhone(order.phoneNumber, order.countryCode, order.countryName), [order.phoneNumber, order.countryCode, order.countryName]);
+  const hasOtp = Boolean(order.otpCode || order.otpMessage || order.status === "OTP_RECEIVED");
 
   useEffect(() => setTimer(remaining(order.expiresAt)), [order.expiresAt]);
   useEffect(() => {
@@ -121,6 +122,20 @@ export default function SmsOrderCard({ order, onChange, onRemove }: Props) {
     }
   }
 
+  async function finish() {
+    if (!hasOtp || action || !order.phoneNumber) return;
+    setAction("finish");
+    try {
+      await finishOrder(order.id);
+      toast.success("سفارش با موفقیت ثبت شد. می‌توانید شماره دیگری دریافت کنید.");
+      onRemove?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ثبت موفق سفارش ناموفق بود.");
+    } finally {
+      setAction(null);
+    }
+  }
+
   async function cancel() {
     if (!order.canCancel || action || !order.phoneNumber) return;
     setAction("cancel");
@@ -137,6 +152,8 @@ export default function SmsOrderCard({ order, onChange, onRemove }: Props) {
     }
   }
 
+  const showFinish = order.status === "OTP_RECEIVED" && hasOtp;
+
   return (
     <article className="min-w-[290px] rounded-[24px] border border-white/10 bg-white/[.045] p-4 shadow-xl shadow-black/10 w-full" dir="rtl">
       <div className="flex items-center justify-between gap-3">
@@ -151,8 +168,16 @@ export default function SmsOrderCard({ order, onChange, onRemove }: Props) {
       <div className="mt-3 rounded-2xl border border-white/8 bg-white/[.025] px-3 py-2.5"><div className="flex items-center justify-between gap-2 text-[10px] text-white/35"><span>آخرین کد دریافت‌شده</span><span>{order.smsRevision ? `پیامک ${order.smsRevision}` : ""}</span></div><p className="mt-1 font-mono text-sm font-black tracking-widest text-cyan-200">{otpText}</p>{order.otpMessage ? <p className="mt-1 line-clamp-2 text-[10px] leading-5 text-white/40">{order.otpMessage}</p> : null}</div>
       {order.orderNumber ? <p className="mt-2 truncate text-[10px] text-white/25">شماره سفارش: {order.orderNumber}</p> : null}
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => void resend()} disabled={!order.canResend || Boolean(action)} className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-white/[.06] text-[10px] font-bold text-white/70 disabled:opacity-30"><RefreshCw size={13} className={action === "resend" ? "animate-spin" : ""} /> ارسال مجدد</button>
-        <button type="button" onClick={() => void cancel()} disabled={!order.canCancel || Boolean(action) || !order.phoneNumber} className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-red-400/10 text-[10px] font-bold text-red-200 disabled:opacity-30">{action === "cancel" ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />} لغو شماره</button>
+        {showFinish ? (
+          <button type="button" onClick={() => void finish()} disabled={Boolean(action)} className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-emerald-400/10 text-[10px] font-bold text-emerald-200 disabled:opacity-30"><Check size={13} className={action === "finish" ? "animate-pulse" : ""} /> ثبت موفق / Done</button>
+        ) : (
+          <button type="button" onClick={() => void resend()} disabled={!order.canResend || Boolean(action)} className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-white/[.06] text-[10px] font-bold text-white/70 disabled:opacity-30"><RefreshCw size={13} className={action === "resend" ? "animate-spin" : ""} /> ارسال مجدد</button>
+        )}
+        {showFinish ? (
+          <button type="button" onClick={() => void resend()} disabled={!order.canResend || Boolean(action)} className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-white/[.06] text-[10px] font-bold text-white/70 disabled:opacity-30"><RefreshCw size={13} className={action === "resend" ? "animate-spin" : ""} /> ارسال مجدد</button>
+        ) : (
+          <button type="button" onClick={() => void cancel()} disabled={!order.canCancel || Boolean(action) || !order.phoneNumber} className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-red-400/10 text-[10px] font-bold text-red-200 disabled:opacity-30">{action === "cancel" ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />} لغو شماره</button>
+        )}
       </div>
       {copied ? <p className="mt-2 text-center text-[10px] text-cyan-200">شماره کپی شد</p> : null}
     </article>
