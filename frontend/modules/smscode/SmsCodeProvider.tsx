@@ -7,6 +7,7 @@ import type { SmsOrderCardData } from "@/components/service/SmsOrderCard";
 type SmsCodeContextValue = {
   get: (id: string) => Promise<SmsOrderCardData>;
   resend: (id: string) => Promise<SmsOrderCardData>;
+  finish: (id: string) => Promise<SmsOrderCardData>;
   cancel: (id: string) => Promise<SmsOrderCardData>;
   active: (serviceId: string) => Promise<SmsOrderCardData | null>;
 };
@@ -19,6 +20,10 @@ export function SmsCodeProvider({ children }: { children: ReactNode }) {
     (id: string) => api<SmsOrderCardData>(`smscode/orders/${id}/resend`, { method: "POST" }),
     [],
   );
+  const finish = useCallback(
+    (id: string) => api<SmsOrderCardData>(`smscode/orders/${id}/finish`, { method: "POST" }),
+    [],
+  );
   const cancel = useCallback(
     (id: string) => api<SmsOrderCardData>(`smscode/orders/${id}/cancel`, { method: "POST" }),
     [],
@@ -28,7 +33,7 @@ export function SmsCodeProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const value = useMemo(() => ({ get, resend, cancel, active }), [get, resend, cancel, active]);
+  const value = useMemo(() => ({ get, resend, finish, cancel, active }), [get, resend, finish, cancel, active]);
   return <SmsCodeContext.Provider value={value}>{children}</SmsCodeContext.Provider>;
 }
 
