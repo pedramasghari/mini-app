@@ -12,6 +12,7 @@ import { CommerceController } from './commerce.controller';
 import { NumberOrdersController } from './number-orders.controller';
 import { NumberOrdersService } from './number-orders.service';
 import { SmsCodeService } from './smscode.service';
+import { SmsCodeFinishService } from './smscode-finish.service';
 import { WalletTransactionsController } from './wallet-transactions.controller';
 
 @Module({
@@ -39,7 +40,7 @@ import { WalletTransactionsController } from './wallet-transactions.controller';
     ]),
   ],
   controllers: [CommerceController, NumberOrdersController, WalletTransactionsController],
-  providers: [CommerceService, SmsCodeService, NumberOrdersService],
-  exports: [CommerceService, SmsCodeService, NumberOrdersService],
+  providers: [CommerceService, SmsCodeService, SmsCodeFinishService, NumberOrdersService],
+  exports: [CommerceService, SmsCodeService, SmsCodeFinishService, NumberOrdersService],
 })
 export class CommerceModule {}
