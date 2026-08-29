@@ -101,6 +101,27 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
 
   async createPayment(userId: string, amountValue: string) {
     const amount = this.parseAmount(amountValue);
+
+    // Reuse only an actually pending payment. FAILED/EXPIRED/SUCCESS payments
+    // are terminal and can never be sent to Zibal again. A new request always
+    // receives a new local payment/ticket id and a new provider order id.
+    const existing = await this.payments.findOne({
+      where: { userId, status: 'PENDING' },
+      order: { createdAt: 'DESC' },
+    });
+    if (existing && existing.expiresAt && existing.expiresAt.getTime() > Date.now()) {
+      return {
+        id: existing.id,
+        ticketId: existing.id,
+        trackId: existing.trackId,
+        paymentUrl: existing.trackId ? `${START_URL}${existing.trackId}` : null,
+        amount: existing.amount,
+        currency: existing.currency,
+        expiresAt: existing.expiresAt,
+      };
+    }
+    if (existing) await this.expirePayment(existing.id);
+
     const payment = await this.payments.save(this.payments.create({
       userId,
       orderId: randomUUID(),
@@ -144,6 +165,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       };
     } catch (error) {
       if (payment.status === 'PENDING' && !payment.trackId) {
+        payment.status = 'FAILED';
         payment.failureReason = error instanceof Error ? error.message : 'خطا در اتصال به زیبال';
         await this.payments.save(payment).catch(() => undefined);
       }
@@ -166,12 +188,36 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
   async getPaymentStatus(userId: string, paymentId: string) {
     const payment = await this.payments.findOne({ where: { id: paymentId, userId } });
     if (!payment) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
-    if (payment.status === 'PENDING' && payment.expiresAt && payment.expiresAt.getTime() <= Date.now()) {
-      await this.expirePayment(payment.id);
-      payment.status = 'EXPIRED';
-      payment.failureReason = 'مهلت ۲۰ دقیقه‌ای پرداخت به پایان رسید.';
+
+    // The status endpoint is authoritative too. This prevents the UI from
+    // waiting for the background reconciler and makes callback/tab handling
+    // deterministic. Terminal payments are never verified again.
+    if (payment.status === 'PENDING') {
+      if (payment.expiresAt && payment.expiresAt.getTime() <= Date.now()) {
+        await this.expirePayment(payment.id);
+      } else if (payment.trackId) {
+        await this.verifyAndSettle(payment.id);
+      }
     }
-    return { id: payment.id, ticketId: payment.id, status: this.publicStatus(payment.status), amount: payment.amount, currency: payment.currency, expiresAt: payment.expiresAt };
+
+    const latest = await this.payments.findOne({ where: { id: payment.id, userId } });
+    if (!latest) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
+    return {
+      id: latest.id,
+      ticketId: latest.id,
+      trackId: latest.trackId,
+      status: this.publicStatus(latest.status),
+      amount: latest.amount,
+      currency: latest.currency,
+      expiresAt: latest.expiresAt,
+      gateway: {
+        result: latest.gatewayResult,
+        message: latest.gatewayMessage,
+        refNumber: latest.refNumber,
+        cardNumber: latest.cardNumber,
+        paidAt: latest.paidAt,
+      },
+    };
   }
 
   async getStatus(userId: string, paymentId: string) { return this.getPaymentStatus(userId, paymentId); }
@@ -193,7 +239,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     const payment = await this.payments.findOne({ where: { id: paymentId } });
     if (!payment?.trackId) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
     if (payment.status === 'SUCCESS') return { success: true, alreadyProcessed: true, payment };
-    if (payment.status === 'EXPIRED') return { success: false, alreadyProcessed: true, payment };
+    if (payment.status === 'EXPIRED' || payment.status === 'FAILED') return { success: false, alreadyProcessed: true, payment };
     if (payment.expiresAt && payment.expiresAt.getTime() <= Date.now()) {
       await this.expirePayment(payment.id);
       return { success: false, alreadyProcessed: true, payment: await this.payments.findOne({ where: { id: payment.id } }) };
@@ -219,7 +265,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     const settled = await this.dataSource.transaction(async manager => {
       const locked = await manager.findOne(ZibalPayment, { where: { id: paymentId }, lock: { mode: 'pessimistic_write' } });
       if (!locked) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
-      if (locked.status === 'SUCCESS' || locked.status === 'EXPIRED') return { payment: locked, credited: false };
+      if (locked.status === 'SUCCESS' || locked.status === 'EXPIRED' || locked.status === 'FAILED') return { payment: locked, credited: false, wallet: null };
       if (!locked.trackId) throw new BadRequestException('شناسه تراکنش زیبال ثبت نشده است.');
 
       if (result.amount == null || !/^\d+$/.test(String(result.amount))) {
@@ -260,7 +306,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       locked.gatewaySnapshot = { ...result } as any;
       locked.failureReason = null;
       await manager.save(locked);
-      return { payment: locked, credited: true };
+      return { payment: locked, credited: true, wallet: { balance: after, currency: afterWallet.currency } };
     });
 
     if (settled.credited) {
@@ -269,6 +315,14 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
         message: `مبلغ ${settled.payment.amount} ${settled.payment.currency} با موفقیت به کیف پول شما اضافه شد.`,
         data: { paymentId: settled.payment.id, amount: settled.payment.amount, reference: settled.payment.refNumber },
       }).catch(error => this.logger.warn(`deposit notification failed: ${String(error)}`));
+
+      if (settled.wallet) {
+        this.notifications.emit(settled.payment.userId, {
+          type: 'wallet.updated',
+          wallet: settled.wallet,
+          payment: { id: settled.payment.id, status: settled.payment.status, amount: settled.payment.amount },
+        });
+      }
     }
     return { success: true, alreadyProcessed: !settled.credited, payment: settled.payment };
   }
