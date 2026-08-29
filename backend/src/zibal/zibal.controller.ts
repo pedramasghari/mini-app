@@ -1,20 +1,19 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service';
+import { ZibalPayment } from './entities/zibal-payment.entity';
 import { ZibalService } from './zibal.service';
 
 const COOKIE = 'miniapp_session';
-
-type CallbackResult = {
-  success: boolean;
-  payment?: { id?: string; trackId?: string | null; status?: string } | null;
-};
 
 @Controller('zibal')
 export class ZibalController {
   constructor(
     private readonly auth: AuthService,
     private readonly zibal: ZibalService,
+    @InjectRepository(ZibalPayment) private readonly payments: Repository<ZibalPayment>,
   ) {}
 
   private async userId(req: Request) {
@@ -34,29 +33,26 @@ export class ZibalController {
 
   /**
    * Zibal sends the browser back here after the gateway flow.
-   * The browser is always moved to the frontend status page using the
-   * internal payment UUID. The status page then calls the authenticated
-   * backend status endpoint, which performs Verify against Zibal while the
-   * payment is still PENDING.
+   * Do NOT verify here: the user must land on /zibal/status first and that
+   * authenticated status request performs Verify against Zibal. This avoids
+   * a race where an immediate callback Verify can receive result=202 while
+   * Zibal is still finalizing the transaction, causing a false FAILED state.
    *
-   * Zibal callback fields (success/status) are intentionally not trusted as
-   * final payment confirmation; the backend Verify response is authoritative.
+   * Zibal callback fields are not treated as final payment confirmation.
+   * The Verify response from Zibal is authoritative.
    */
   @Get('callback')
   async callback(@Query('trackId') trackId: string | undefined, @Res() res: Response) {
-    if (!trackId?.trim()) {
+    const normalizedTrackId = String(trackId ?? '').trim();
+    if (!normalizedTrackId) {
       throw new BadRequestException('شناسه تراکنش زیبال دریافت نشد.');
     }
 
-    const result = await this.zibal.callback(trackId.trim()) as CallbackResult;
-    const paymentId = result.payment?.id?.trim();
-
-    if (!paymentId) {
-      throw new BadRequestException('شناسه تراکنش پس از callback زیبال پیدا نشد.');
-    }
+    const payment = await this.payments.findOne({ where: { trackId: normalizedTrackId } });
+    if (!payment) throw new NotFoundException('تراکنش زیبال پیدا نشد.');
 
     const frontendUrl = (process.env.FRONTEND_URL?.trim() || 'http://localhost:3000').replace(/\/+$/, '');
-    const statusUrl = `${frontendUrl}/zibal/status?ticketId=${encodeURIComponent(paymentId)}`;
+    const statusUrl = `${frontendUrl}/zibal/status?ticketId=${encodeURIComponent(payment.id)}`;
 
     return res.redirect(303, statusUrl);
   }
