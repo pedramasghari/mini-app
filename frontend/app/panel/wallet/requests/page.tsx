@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, fa } from '@/lib/api';
 
 type Kind = 'WITHDRAWAL' | 'DEPOSIT';
@@ -44,6 +44,8 @@ const filters: { value: Filter; label: string }[] = [
   { value: 'REJECTED', label: 'شارژ رد شده' },
 ];
 
+const VERIFY_COOLDOWN_SECONDS = 60;
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('fa-IR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 }
@@ -70,6 +72,10 @@ export default function WalletRequestsPage() {
   const [filter, setFilter] = useState<Filter>('ALL');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [verifyLoading, setVerifyLoading] = useState<Record<string, boolean>>({});
+  const [verifyUntil, setVerifyUntil] = useState<Record<string, number>>({});
+  const [now, setNow] = useState(() => Date.now());
+  const [verifyError, setVerifyError] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -83,7 +89,41 @@ export default function WalletRequestsPage() {
   }, [page, filter]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const changeFilter = (value: Filter) => { setFilter(value); setPage(1); };
+
+  const verifyZibal = useCallback(async (item: RequestItem) => {
+    if (item.gateway !== 'ZIBAL' || !['PENDING', 'FAILED'].includes(item.status)) return;
+    const until = verifyUntil[item.id] ?? 0;
+    if (until > Date.now()) return;
+
+    setVerifyLoading((current) => ({ ...current, [item.id]: true }));
+    setVerifyError((current) => ({ ...current, [item.id]: '' }));
+    // The server is authoritative for the cooldown. This client timer is only
+    // UX and prevents accidental double clicks while the request is running.
+    setVerifyUntil((current) => ({ ...current, [item.id]: Date.now() + VERIFY_COOLDOWN_SECONDS * 1000 }));
+
+    try {
+      await api(`zibal/payments/${encodeURIComponent(item.id)}/verify`, { method: 'POST' });
+      await load();
+    } catch (e) {
+      setVerifyError((current) => ({ ...current, [item.id]: e instanceof Error ? e.message : 'خطا در بررسی تراکنش' }));
+      await load();
+    } finally {
+      setVerifyLoading((current) => ({ ...current, [item.id]: false }));
+    }
+  }, [load, verifyUntil]);
+
+  const cooldowns = useMemo(() => {
+    const result: Record<string, number> = {};
+    for (const [id, until] of Object.entries(verifyUntil)) result[id] = Math.max(0, Math.ceil((until - now) / 1000));
+    return result;
+  }, [now, verifyUntil]);
 
   return (
     <main dir="rtl" className="mx-auto w-full max-w-5xl space-y-5 p-4 pb-24">
@@ -99,29 +139,35 @@ export default function WalletRequestsPage() {
 
       <section className="space-y-3">
         {loading && <div className="rounded-3xl border border-white/10 p-10 text-center text-sm text-white/40">در حال دریافت درخواست‌ها...</div>}
-        {!loading && data?.items.map((item) => (
-          <article key={`${item.kind}-${item.id}`} className="rounded-3xl border border-white/10 bg-white/[0.035] p-4 transition hover:border-white/20">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex items-center gap-3"><div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${item.kind === 'DEPOSIT' ? 'bg-sky-400/10 text-sky-300' : 'bg-violet-400/10 text-violet-300'}`}>{item.kind === 'DEPOSIT' ? '↓' : '↑'}</div><div><div className="text-lg font-bold">{fa(item.amount)} <span className="text-sm font-normal text-white/45">{item.currency}</span></div><div className="mt-1 text-xs text-white/45">{item.kind === 'DEPOSIT' ? 'درخواست شارژ کیف پول' : 'درخواست برداشت وجه'} · {formatDate(item.createdAt)}</div></div></div>
-              <span className={`rounded-full px-3 py-1 text-xs ${statusClass(item)}`}>{statusLabel(item)}</span>
-            </div>
-            {item.kind === 'WITHDRAWAL' && <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">شماره کارت</div><div dir="ltr" className="mt-1 text-left">•••• •••• •••• {(item.cardNumber ?? '').slice(-4)}</div></div><div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">به نام</div><div className="mt-1 truncate">{item.cardHolderName}</div></div><div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">شناسه</div><div dir="ltr" className="mt-1 truncate">{item.id}</div></div></div>}
-            {item.kind === 'DEPOSIT' && item.gateway === 'CARD_TRANSFER' && item.receiptPath && <div className="mt-4 rounded-2xl bg-black/15 p-3 text-sm text-white/55">رسید پرداخت ثبت شده است.</div>}
-            {item.gateway === 'ZIBAL' && <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">درگاه</div><div className="mt-1 font-bold text-cyan-200">زیبال</div></div>
-              {item.gatewayTrackId && <div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">Track ID</div><div dir="ltr" className="mt-1 font-mono text-xs text-white/65">{item.gatewayTrackId}</div></div>}
-              {item.gatewayResult && <div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">کد نتیجه</div><div dir="ltr" className="mt-1 font-mono text-xs text-white/65">{item.gatewayResult}</div></div>}
-              {item.gatewayRefNumber && <div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">شماره مرجع</div><div dir="ltr" className="mt-1 font-mono text-xs text-white/65">{item.gatewayRefNumber}</div></div>}
-              {item.gatewayMessage && <div className="rounded-2xl bg-black/15 p-3 sm:col-span-2"><div className="text-xs text-white/40">پیام درگاه</div><div className="mt-1 text-xs text-white/60">{item.gatewayMessage}</div></div>}
-              {item.gatewayPaidAt && <div className="rounded-2xl bg-black/15 p-3 sm:col-span-2"><div className="text-xs text-white/40">زمان پرداخت</div><div className="mt-1 text-xs text-white/60">{formatDate(item.gatewayPaidAt)}</div></div>}
-            </div>}
-            {item.status === 'COMPLETED' && item.completedAt && <div className="mt-3 text-xs text-emerald-300/70">انجام شده در {formatDate(item.completedAt)}</div>}
-            {item.status === 'APPROVED' && <div className="mt-3 text-xs text-emerald-300/70">شارژ تأیید شده است.</div>}
-            {item.status === 'CANCELLED' && item.cancelledAt && <div className="mt-3 text-xs text-white/40">لغو شده در {formatDate(item.cancelledAt)}</div>}
-            {item.status === 'REJECTED' && item.adminReason && <div className="mt-3 rounded-2xl bg-red-400/5 p-3 text-xs text-red-200">دلیل رد: {item.adminReason}</div>}
-            {item.gateway === 'ZIBAL' && item.status === 'FAILED' && item.adminReason && <div className="mt-3 rounded-2xl bg-red-400/5 p-3 text-xs text-red-200">دلیل شکست درگاه: {item.adminReason}</div>}
-          </article>
-        ))}
+        {!loading && data?.items.map((item) => {
+          const remaining = cooldowns[item.id] ?? 0;
+          const canVerify = item.gateway === 'ZIBAL' && ['PENDING', 'FAILED'].includes(item.status);
+          const verifying = Boolean(verifyLoading[item.id]);
+          return (
+            <article key={`${item.kind}-${item.id}`} className="rounded-3xl border border-white/10 bg-white/[0.035] p-4 transition hover:border-white/20">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex items-center gap-3"><div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${item.kind === 'DEPOSIT' ? 'bg-sky-400/10 text-sky-300' : 'bg-violet-400/10 text-violet-300'}`}>{item.kind === 'DEPOSIT' ? '↓' : '↑'}</div><div><div className="text-lg font-bold">{fa(item.amount)} <span className="text-sm font-normal text-white/45">{item.currency}</span></div><div className="mt-1 text-xs text-white/45">{item.kind === 'DEPOSIT' ? 'درخواست شارژ کیف پول' : 'درخواست برداشت وجه'} · {formatDate(item.createdAt)}</div></div></div>
+                <div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs ${statusClass(item)}`}>{statusLabel(item)}</span>{canVerify && <button type="button" onClick={() => verifyZibal(item)} disabled={verifying || remaining > 0} className="inline-flex items-center gap-2 rounded-full bg-teal-400 px-3 py-1.5 text-xs font-bold text-black transition disabled:cursor-not-allowed disabled:opacity-40">{verifying ? 'در حال بررسی...' : remaining > 0 ? `بررسی مجدد (${fa(remaining)} ثانیه)` : '↻ بررسی مجدد'}</button>}</div>
+              </div>
+              {verifyError[item.id] && <div className="mt-3 rounded-2xl bg-red-400/5 p-3 text-xs text-red-200">{verifyError[item.id]}</div>}
+              {item.kind === 'WITHDRAWAL' && <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">شماره کارت</div><div dir="ltr" className="mt-1 text-left">•••• •••• •••• {(item.cardNumber ?? '').slice(-4)}</div></div><div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">به نام</div><div className="mt-1 truncate">{item.cardHolderName}</div></div><div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">شناسه</div><div dir="ltr" className="mt-1 truncate">{item.id}</div></div></div>}
+              {item.kind === 'DEPOSIT' && item.gateway === 'CARD_TRANSFER' && item.receiptPath && <div className="mt-4 rounded-2xl bg-black/15 p-3 text-sm text-white/55">رسید پرداخت ثبت شده است.</div>}
+              {item.gateway === 'ZIBAL' && <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">درگاه</div><div className="mt-1 font-bold text-cyan-200">زیبال</div></div>
+                {item.gatewayTrackId && <div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">Track ID</div><div dir="ltr" className="mt-1 font-mono text-xs text-white/65">{item.gatewayTrackId}</div></div>}
+                {item.gatewayResult && <div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">کد نتیجه</div><div dir="ltr" className="mt-1 font-mono text-xs text-white/65">{item.gatewayResult}</div></div>}
+                {item.gatewayRefNumber && <div className="rounded-2xl bg-black/15 p-3"><div className="text-xs text-white/40">شماره مرجع</div><div dir="ltr" className="mt-1 font-mono text-xs text-white/65">{item.gatewayRefNumber}</div></div>}
+                {item.gatewayMessage && <div className="rounded-2xl bg-black/15 p-3 sm:col-span-2"><div className="text-xs text-white/40">پیام درگاه</div><div className="mt-1 text-xs text-white/60">{item.gatewayMessage}</div></div>}
+                {item.gatewayPaidAt && <div className="rounded-2xl bg-black/15 p-3 sm:col-span-2"><div className="text-xs text-white/40">زمان پرداخت</div><div className="mt-1 text-xs text-white/60">{formatDate(item.gatewayPaidAt)}</div></div>}
+              </div>}
+              {item.status === 'COMPLETED' && item.completedAt && <div className="mt-3 text-xs text-emerald-300/70">انجام شده در {formatDate(item.completedAt)}</div>}
+              {item.status === 'APPROVED' && <div className="mt-3 text-xs text-emerald-300/70">شارژ تأیید شده است.</div>}
+              {item.status === 'CANCELLED' && item.cancelledAt && <div className="mt-3 text-xs text-white/40">لغو شده در {formatDate(item.cancelledAt)}</div>}
+              {item.status === 'REJECTED' && item.adminReason && <div className="mt-3 rounded-2xl bg-red-400/5 p-3 text-xs text-red-200">دلیل رد: {item.adminReason}</div>}
+              {item.gateway === 'ZIBAL' && item.status === 'FAILED' && item.adminReason && <div className="mt-3 rounded-2xl bg-red-400/5 p-3 text-xs text-red-200">دلیل شکست درگاه: {item.adminReason}</div>}
+            </article>
+          );
+        })}
         {!loading && !data?.items.length && <div className="rounded-3xl border border-dashed border-white/10 p-10 text-center text-sm text-white/40">درخواستی با این فیلتر پیدا نشد.</div>}
       </section>
 
