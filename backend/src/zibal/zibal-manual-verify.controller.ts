@@ -8,6 +8,7 @@ import { ZibalService } from './zibal.service';
 const COOKIE = 'miniapp_session';
 const VERIFY_COOLDOWN_MS = 5_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ZIBAL_TRANSACTION_FAILED_RESULT = '202';
 
 @Controller('zibal')
 export class ZibalManualVerifyController {
@@ -53,6 +54,14 @@ export class ZibalManualVerifyController {
     if (prepared.alreadyProcessed) return this.publicPayment(payment);
 
     const result = await this.zibal.verifyAndSettle(prepared.id);
+
+    // Zibal can return only { result: 202, message: 'transaction failed' }
+    // after the user cancels/fails the gateway flow. There is no `status` in
+    // that response, so 202 itself is the terminal failure signal.
+    if (result.gateway?.result === ZIBAL_TRANSACTION_FAILED_RESULT && result.payment) {
+      result.payment.status = 'FAILED';
+    }
+
     return this.publicPayment(result.payment);
   }
 
