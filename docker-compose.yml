@@ -19,8 +19,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # One-shot migration job. It must complete successfully before the backend
-  # starts, otherwise a partially migrated database could serve traffic.
   backend-migration:
     build:
       context: .
@@ -60,7 +58,7 @@ services:
       DATABASE_NAME: miniapp
       TELEGRAM_BOT_TOKEN: "8954360933:AAGPIHaerGJdGZr6eQBn6G2RwD9p0S4A57k"
       FRONTEND_URL: "https://app.akokala.ir"
-      ADMIN_BOT_TOKEN: "8954360933:AAGPIHaerGJdGJdGZr6eQBn6G2RwD9p0S4A57k"
+      ADMIN_BOT_TOKEN: "8954360933:AAGPIHaerGJdGZr6eQBn6G2RwD9p0S4A57k"
       ADMIN_TELEGRAM_IDS: "1194031410"
       MINI_APP_URL: "t.me/AkoID_bot/app"
       SMSCODE_API_VERSION: "v2"
