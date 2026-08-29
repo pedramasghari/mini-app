@@ -13,7 +13,9 @@ import { ZibalPayment } from './entities/zibal-payment.entity';
 import { ZibalService } from './zibal.service';
 
 const COOKIE = 'miniapp_session';
-const VERIFY_COOLDOWN_MS = 60_000;
+// This endpoint is also used by the payment status page while Zibal is
+// finalizing a transaction. It must not wait a full minute between checks.
+const VERIFY_COOLDOWN_MS = 5_000;
 
 @Controller('zibal')
 export class ZibalManualVerifyController {
@@ -75,14 +77,46 @@ export class ZibalManualVerifyController {
     });
 
     if (prepared.alreadySuccessful) {
-      return { success: true, alreadyProcessed: true };
+      const payment = await this.dataSource.getRepository(ZibalPayment).findOne({ where: { id: prepared.id, userId } });
+      return this.publicPayment(payment);
     }
 
     const result = await this.zibal.verifyAndSettle(prepared.id);
+    let payment = result.payment;
+
+    // Zibal can briefly return result=202 immediately after the browser
+    // callback while the transaction is still being finalized. 202 means
+    // "order not paid / unsuccessful" at that instant, but it must not be
+    // treated as an irreversible local FAILED state during the active
+    // payment window. Keep it PENDING so the status page can verify again.
+    if (result.gateway?.result === 202 && payment?.status === 'FAILED') {
+      await this.dataSource.getRepository(ZibalPayment).update(prepared.id, {
+        status: 'PENDING',
+        failureReason: null,
+      });
+      payment = await this.dataSource.getRepository(ZibalPayment).findOne({ where: { id: prepared.id, userId } });
+    }
+
+    return this.publicPayment(payment);
+  }
+
+  private publicPayment(payment: ZibalPayment | null) {
+    if (!payment) throw new BadRequestException('تراکنش پرداخت پیدا نشد.');
     return {
-      success: result.success,
-      alreadyProcessed: result.alreadyProcessed,
-      payment: result.payment,
+      id: payment.id,
+      ticketId: payment.id,
+      trackId: payment.trackId,
+      status: payment.status,
+      amount: payment.amount,
+      currency: payment.currency,
+      expiresAt: payment.expiresAt,
+      gateway: {
+        result: payment.gatewayResult,
+        message: payment.gatewayMessage,
+        refNumber: payment.refNumber,
+        cardNumber: payment.cardNumber,
+        paidAt: payment.paidAt,
+      },
     };
   }
 }
