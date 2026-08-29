@@ -23,6 +23,7 @@ export class ZibalPayment {
   @Column({ type: 'jsonb', default: {} }) gatewaySnapshot!: Record<string, unknown>;
   @Column({ type: 'text', nullable: true }) failureReason!: string | null;
   @Column({ type: 'timestamptz', nullable: true }) expiresAt!: Date | null;
+  @Column({ type: 'timestamptz', nullable: true }) lastVerifyAt!: Date | null;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }
