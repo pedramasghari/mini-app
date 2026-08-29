@@ -132,7 +132,6 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
     return this.verifyAndSettle(payment.id);
   }
 
-  // paymentId is the local UUID/ticket ID. Zibal's numeric trackId is stored separately and is only used for gateway calls.
   async getPaymentStatus(userId: string, paymentId: string) {
     const payment = await this.payments.findOne({ where: { id: paymentId, userId } });
     if (!payment) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
@@ -194,7 +193,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       locked.status = 'SUCCESS'; locked.gatewayResult = String(result.result ?? '100'); locked.gatewayMessage = result.message ?? null; locked.refNumber = result.refNumber ?? null; locked.cardNumber = result.cardNumber ?? null; locked.paidAt = result.paidAt ? new Date(result.paidAt) : new Date(); locked.gatewaySnapshot = { ...result } as any; locked.failureReason = null; await manager.save(locked);
       return { payment: locked, credited: true, wallet: { balance: after, currency: afterWallet.currency } };
     });
-    if (settled.credited) await this.notifications.create(settled.payment.userId, { type: 'WALLET_DEPOSIT', title: 'شارژ کیف پول', body: `مبلغ ${settled.payment.amount} تومان با موفقیت به کیف پول شما اضافه شد.` }).catch(error => this.logger.warn(`Zibal notification failed: ${error instanceof Error ? error.message : String(error)}`));
+    if (settled.credited) await this.notifications.create(settled.payment.userId, { type: 'WALLET_DEPOSIT', title: 'شارژ کیف پول', message: `مبلغ ${settled.payment.amount} تومان با موفقیت به کیف پول شما اضافه شد.` }).catch(error => this.logger.warn(`Zibal notification failed: ${error instanceof Error ? error.message : String(error)}`));
     return { success: settled.credited || settled.payment.status === 'SUCCESS', alreadyProcessed: !settled.credited, payment: settled.payment, wallet: settled.wallet };
   }
 
