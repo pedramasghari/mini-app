@@ -33,21 +33,28 @@ export class ZibalController {
   }
 
   /**
-   * Zibal callback. This endpoint is public because Zibal calls it directly.
-   * The payment is verified on the server before the browser is sent back to
-   * the Mini App status page. No Telegram URL or second tab is opened here.
+   * Zibal calls this URL from the user's external browser after payment.
+   * The server verifies/settles the payment first, then sends the browser
+   * back to Telegram using the Mini App direct-link startapp parameter.
+   *
+   * The Mini App reads start_param and opens /zibal/status in its own origin.
+   * This makes the flow independent of whether Telegram reuses the previous
+   * WebView tab or creates a new one.
    */
   @Get('callback')
   async callback(@Query('trackId') trackId: string | undefined, @Res() res: Response) {
     const result = await this.zibal.callback(trackId) as CallbackResult;
     const paymentId = result.payment?.id;
-    const statusUrl = paymentId
-      ? `/zibal/callback?paymentId=${encodeURIComponent(paymentId)}&trackId=${encodeURIComponent(String(trackId ?? ''))}`
-      : `/zibal/callback?trackId=${encodeURIComponent(String(trackId ?? ''))}`;
-    return res.redirect(303, statusUrl);
+
+    if (!paymentId) {
+      throw new BadRequestException('شناسه تراکنش پس از callback زیبال پیدا نشد.');
+    }
+
+    const miniAppUrl = this.zibal.miniAppPaymentUrl(paymentId);
+    return res.redirect(303, miniAppUrl);
   }
 
-  /** Authenticated status endpoint used by the Mini App while the user is on Zibal. */
+  /** Authenticated status endpoint used by the Mini App after returning from Zibal. */
   @Get('payments/:paymentId/status')
   async paymentStatus(@Req() req: Request, @Param('paymentId') paymentId: string) {
     return this.zibal.getPaymentStatus(await this.userId(req), paymentId);
