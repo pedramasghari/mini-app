@@ -167,7 +167,7 @@ export class WithdrawalsService {
              'CARD_TRANSFER'::text AS "gateway", NULL::text AS "gatewayTrackId", NULL::text AS "gatewayResult", NULL::text AS "gatewayMessage", NULL::text AS "gatewayRefNumber", NULL::timestamptz AS "gatewayPaidAt"
       FROM payment_requests
       UNION ALL
-      SELECT id, "userId", 'DEPOSIT' AS kind, amount, currency, status, "createdAt", NULL::timestamptz AS "completedAt", NULL::timestamptz AS "cancelledAt", NULL::timestamptz AS "rejectedAt", NULL::text AS "receiptPath", NULL::text AS "cardNumber", NULL::text AS "cardHolderName", failureReason AS "adminReason",
+      SELECT id, "userId", 'DEPOSIT' AS kind, amount, currency, status, "createdAt", NULL::timestamptz AS "completedAt", NULL::timestamptz AS "cancelledAt", NULL::timestamptz AS "rejectedAt", NULL::text AS "receiptPath", NULL::text AS "cardNumber", NULL::text AS "cardHolderName", "failureReason" AS "adminReason",
              'ZIBAL'::text AS "gateway", CAST("trackId" AS text) AS "gatewayTrackId", "gatewayResult", "gatewayMessage", "refNumber" AS "gatewayRefNumber", "paidAt" AS "gatewayPaidAt"
       FROM zibal_payments
     `;
