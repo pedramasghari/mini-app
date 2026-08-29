@@ -133,7 +133,18 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getPaymentStatus(userId: string, paymentId: string) {
-    const payment = await this.payments.findOne({ where: { id: paymentId, userId } });
+    const identifier = String(paymentId ?? '').trim();
+    if (!identifier) throw new BadRequestException('شناسه پرداخت الزامی است.');
+
+    // The public ticket is the internal payment UUID. Keep a defensive fallback
+    // for older callback URLs that accidentally exposed Zibal's numeric trackId.
+    // Validate before querying the UUID column so PostgreSQL never receives a
+    // numeric trackId for a uuid parameter (SQLSTATE 22P02).
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identifier);
+    const payment = isUuid
+      ? await this.payments.findOne({ where: { id: identifier, userId } })
+      : await this.payments.findOne({ where: { trackId: identifier, userId } });
+
     if (!payment) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
     if (payment.status === 'PENDING') {
       if (payment.expiresAt && payment.expiresAt.getTime() <= Date.now()) await this.expirePayment(payment.id);
@@ -184,7 +195,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       const wallet = await manager.findOne(Wallet, { where: { userId: locked.userId, currency: locked.currency }, lock: { mode: 'pessimistic_write' } });
       if (!wallet) throw new NotFoundException('کیف پول پیدا نشد.');
       const before = String(wallet.balance);
-      const updateResult = await manager.createQueryBuilder().update(Wallet).set({ balance: () => '"balance" + CAST(:amount AS numeric)' }).setParameters({ amount: locked.amount }).where('id = :walletId', { walletId: wallet.id }).execute();
+      const updateResult = await manager.createQueryBuilder().update(Wallet).set({ balance: () => '\"balance\" + CAST(:amount AS numeric)' }).setParameters({ amount: locked.amount }).where('id = :walletId', { walletId: wallet.id }).execute();
       if (updateResult.affected !== 1) throw new BadRequestException('خطا در به‌روزرسانی موجودی کیف پول.');
       const afterWallet = await manager.findOne(Wallet, { where: { id: wallet.id }, lock: { mode: 'pessimistic_read' } });
       if (!afterWallet) throw new NotFoundException('کیف پول پس از شارژ پیدا نشد.');
@@ -204,7 +215,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       const acquired = await this.dataSource.query('SELECT pg_try_advisory_lock($1) AS locked', [RECONCILE_LOCK_KEY]);
       if (!acquired?.[0]?.locked) return;
       try {
-        const payments = await this.payments.createQueryBuilder('p').where('p.status = :status', { status: 'PENDING' }).andWhere('(p."expiresAt" IS NULL OR p."expiresAt" > NOW())').orderBy('p.createdAt', 'ASC').take(50).getMany();
+        const payments = await this.payments.createQueryBuilder('p').where('p.status = :status', { status: 'PENDING' }).andWhere('(p.\"expiresAt\" IS NULL OR p.\"expiresAt\" > NOW())').orderBy('p.createdAt', 'ASC').take(50).getMany();
         for (const payment of payments) {
           if (!payment.trackId) continue;
           try { await this.verifyAndSettle(payment.id); }
