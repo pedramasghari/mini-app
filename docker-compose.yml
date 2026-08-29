@@ -48,7 +48,7 @@ services:
 
       TELEGRAM_BOT_TOKEN: "8954360933:AAGPIHaerGJdGZr6eQBn6G2RwD9p0S4A57k"
 
-      FRONTEND_URL: "http://localhost"
+      FRONTEND_URL: "https://app.akokala.ir"
 
       ADMIN_BOT_TOKEN: "8954360933:AAGPIHaerGJdGZr6eQBn6G2RwD9p0S4A57k"
       ADMIN_TELEGRAM_IDS: "1194031410"
@@ -60,11 +60,11 @@ services:
       SMSCODE_APPLE_CATALOG_PRODUCT_ID: "0"
       SMSCODE_APPLE_MAX_PRICE_USD: "0.03"
 
-      SMSCODE_WEBHOOK_URL: "https://app.doryxo.ir/webhooks/smscode"
+      SMSCODE_WEBHOOK_URL: "https://app.akokala.ir/webhooks/smscode"
 
       ZIBAL_ENABLED: "true"
-      ZIBAL_MERCHANT: "zibal"
-      ZIBAL_CALLBACK_URL: "https://t.me/AkoID_bot/app"
+      ZIBAL_MERCHANT: "68cfbc3ca45c720011b6a889"
+      ZIBAL_CALLBACK_URL: "https://app.akokala.ir/zibal/callback"
 
       ZIBAL_MIN_DEPOSIT_IRT: "1000"
       ZIBAL_MAX_DEPOSIT_IRT: "50000000"
@@ -100,7 +100,6 @@ services:
       - "3000"
     networks:
       - mini_app
-  
   nginx:
     image: nginx:1.27-alpine
     container_name: mini-app-nginx
@@ -112,7 +111,7 @@ services:
       - "80:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./uploads:/var/www/uploads:ro
+      - ./backend/uploads:/var/www/uploads:ro
     networks:
       - mini_app
 
