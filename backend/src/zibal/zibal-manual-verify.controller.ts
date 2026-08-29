@@ -53,7 +53,6 @@ export class ZibalManualVerifyController {
       if (!payment) throw new BadRequestException('تراکنش پرداخت پیدا نشد.');
       if (
         payment.status === 'SUCCESS' ||
-        payment.status === 'FAILED' ||
         payment.status === 'EXPIRED'
       )
         return { id: payment.id, alreadyProcessed: true };
