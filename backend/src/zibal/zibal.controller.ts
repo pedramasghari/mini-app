@@ -33,13 +33,10 @@ export class ZibalController {
   }
 
   /**
-   * Zibal calls this URL from the user's external browser after payment.
-   * The server verifies/settles the payment first, then sends the browser
-   * back to Telegram using the Mini App direct-link startapp parameter.
-   *
-   * The Mini App reads start_param and opens /zibal/status in its own origin.
-   * This makes the flow independent of whether Telegram reuses the previous
-   * WebView tab or creates a new one.
+   * Zibal calls this endpoint from the external browser. Verify/settle the
+   * payment on the backend first, then return to Telegram through the Mini
+   * App direct-link startapp parameter. The Mini App will route to its own
+   * status page after Telegram opens/reuses its WebView.
    */
   @Get('callback')
   async callback(@Query('trackId') trackId: string | undefined, @Res() res: Response) {
@@ -50,7 +47,13 @@ export class ZibalController {
       throw new BadRequestException('شناسه تراکنش پس از callback زیبال پیدا نشد.');
     }
 
-    const miniAppUrl = this.zibal.miniAppPaymentUrl(paymentId);
+    const configuredUrl = process.env.MINI_APP_URL?.trim() || 'https://t.me/AkoID_bot/app';
+    const baseUrl = configuredUrl.startsWith('http')
+      ? configuredUrl
+      : `https://${configuredUrl}`;
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    const miniAppUrl = `${baseUrl}${separator}startapp=${encodeURIComponent(`zibal_${paymentId}`)}`;
+
     return res.redirect(303, miniAppUrl);
   }
 
