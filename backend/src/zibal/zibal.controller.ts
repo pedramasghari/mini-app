@@ -33,28 +33,30 @@ export class ZibalController {
   }
 
   /**
-   * Zibal calls this endpoint from the external browser. Verify/settle the
-   * payment on the backend first, then return to Telegram through the Mini
-   * App direct-link startapp parameter. The Mini App will route to its own
-   * status page after Telegram opens/reuses its WebView.
+   * Zibal redirects the browser here after payment.
+   * The gateway trackId is resolved and verified on the backend first.
+   * Only the internal payment UUID is exposed to the authenticated status page;
+   * trackId is never used as the paymentId route parameter.
    */
   @Get('callback')
   async callback(@Query('trackId') trackId: string | undefined, @Res() res: Response) {
-    const result = await this.zibal.callback(trackId) as CallbackResult;
-    const paymentId = result.payment?.id;
+    if (!trackId?.trim()) {
+      throw new BadRequestException('شناسه تراکنش زیبال دریافت نشد.');
+    }
+
+    const result = await this.zibal.callback(trackId.trim()) as CallbackResult;
+    const paymentId = result.payment?.id?.trim();
 
     if (!paymentId) {
       throw new BadRequestException('شناسه تراکنش پس از callback زیبال پیدا نشد.');
     }
 
-    const configuredUrl = process.env.MINI_APP_URL?.trim() || 'https://t.me/AkoID_bot/app';
-    const baseUrl = configuredUrl.startsWith('http')
-      ? configuredUrl
-      : `https://${configuredUrl}`;
-    const separator = baseUrl.includes('?') ? '&' : '?';
-    const miniAppUrl = `${baseUrl}${separator}startapp=${encodeURIComponent(`zibal_${paymentId}`)}`;
+    // Zibal callback must land directly on the Mini App status page.
+    // FRONTEND_URL is the public application origin (e.g. https://app.akokala.ir).
+    const frontendUrl = (process.env.FRONTEND_URL?.trim() || 'http://localhost:3000').replace(/\/+$/, '');
+    const statusUrl = `${frontendUrl}/zibal/status?ticketId=${encodeURIComponent(paymentId)}`;
 
-    return res.redirect(303, miniAppUrl);
+    return res.redirect(303, statusUrl);
   }
 
   /** Authenticated status endpoint used by the Mini App after returning from Zibal. */
