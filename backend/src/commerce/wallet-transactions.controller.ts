@@ -1,9 +1,10 @@
 import { Controller, Get, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service';
 import { WalletTransaction } from './entities/commerce.entity';
+import { ZibalPayment } from '../zibal/entities/zibal-payment.entity';
 
 const COOKIE = 'miniapp_session';
 
@@ -13,6 +14,8 @@ export class WalletTransactionsController {
     private readonly auth: AuthService,
     @InjectRepository(WalletTransaction)
     private readonly transactions: Repository<WalletTransaction>,
+    @InjectRepository(ZibalPayment)
+    private readonly zibalPayments: Repository<ZibalPayment>,
   ) {}
 
   private async userId(req: Request) {
@@ -38,8 +41,33 @@ export class WalletTransactionsController {
       take: limit,
     });
 
+    const zibalIds = items
+      .filter((item) => item.referenceType === 'ZIBAL_PAYMENT' && item.referenceId)
+      .map((item) => item.referenceId!)
+      .filter(Boolean);
+    const zibalPayments = zibalIds.length
+      ? await this.zibalPayments.find({ where: { id: In(zibalIds), userId } })
+      : [];
+    const zibalById = new Map(zibalPayments.map((payment) => [payment.id, payment]));
+
     return {
-      items,
+      items: items.map((transaction) => {
+        const payment = transaction.referenceType === 'ZIBAL_PAYMENT' && transaction.referenceId
+          ? zibalById.get(transaction.referenceId)
+          : undefined;
+
+        return {
+          ...transaction,
+          gateway: payment ? 'ZIBAL' : null,
+          gatewayStatus: payment?.status ?? null,
+          gatewayTrackId: payment?.trackId ?? null,
+          gatewayResult: payment?.gatewayResult ?? null,
+          gatewayMessage: payment?.gatewayMessage ?? null,
+          gatewayRefNumber: payment?.refNumber ?? null,
+          gatewayCardNumber: payment?.cardNumber ?? null,
+          gatewayPaidAt: payment?.paidAt ?? null,
+        };
+      }),
       page,
       limit,
       total,
