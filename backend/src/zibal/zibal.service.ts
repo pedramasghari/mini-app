@@ -186,7 +186,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getPaymentStatus(userId: string, paymentId: string) {
-    const payment = await this.payments.findOne({ where: { id: paymentId, userId } });
+    const payment = await this.payments.findOne({ where: { trackId: paymentId, userId } });
     if (!payment) throw new NotFoundException('تراکنش پرداخت پیدا نشد.');
 
     // The status endpoint is authoritative too. This prevents the UI from
@@ -245,7 +245,7 @@ export class ZibalService implements OnModuleInit, OnModuleDestroy {
       return { success: false, alreadyProcessed: true, payment: await this.payments.findOne({ where: { id: payment.id } }) };
     }
 
-    const result = await this.post<ZibalResponse>(VERIFY_URL, { merchant: this.merchant(), trackId: Number(payment.trackId) });
+    const result = await this.post<ZibalResponse>(VERIFY_URL, { merchant: this.merchant(), trackid: Number(payment.trackId) });
     const isSuccess = (result.result === 100 || result.result === 201) && result.status === 1;
     if (!isSuccess) {
       const stillPending = result.status === -1;

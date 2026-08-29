@@ -12,8 +12,8 @@ export default function ZibalCallback() {
     const paymentId = searchParams.get("paymentId");
     const trackId = searchParams.get("trackId");
 
-    if (paymentId) {
-      window.location.replace(`/zibal/status?ticketId=${encodeURIComponent(paymentId)}`);
+    if (trackId) {
+      window.location.replace(`/zibal/status?ticketId=${encodeURIComponent(trackId)}`);
       return;
     }
 

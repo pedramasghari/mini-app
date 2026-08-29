@@ -27,7 +27,29 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+  backend-migration:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+      target: development
 
+    env_file:
+      - ./backend/.env
+
+    environment:
+      NODE_ENV: development
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: PedramPostgres12!@
+      DATABASE_NAME: miniapp
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - mini_app
   backend:
     build:
       context: .

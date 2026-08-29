@@ -3,44 +3,73 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
+type TelegramInitDataUnsafe = {
+  user?: {
+    id: number;
+    first_name: string;
+    last_name?: string;
+    username?: string;
+    language_code?: string;
+    photo_url?: string;
+  };
+  start_param?: string;
+};
+
 export function TelegramProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const [ready, setReady] = useState(false);
+
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!window.Telegram?.WebApp) {
+    const webApp = window.Telegram?.WebApp;
+
+    if (!webApp) {
+      setReady(true);
       return;
     }
-
-    const webApp = window.Telegram.WebApp;
 
     webApp.ready();
     webApp.expand();
-    setReady(true);
+
+    requestAnimationFrame(() => {
+      setReady(true);
+    });
   }, []);
 
   useEffect(() => {
-    if (!ready || pathname === '/zibal/status' || !window.Telegram?.WebApp) {
+    if (!ready || pathname === '/zibal/status') {
       return;
     }
 
-    const startParam = window.Telegram.WebApp.initDataUnsafe?.start_param?.trim();
-    if (!startParam || !startParam.startsWith('zibal_')) {
+    const webApp = window.Telegram?.WebApp;
+
+    if (!webApp) {
+      return;
+    }
+
+    const initDataUnsafe =
+      webApp.initDataUnsafe as TelegramInitDataUnsafe;
+
+    const startParam = initDataUnsafe.start_param?.trim();
+
+    if (!startParam?.startsWith('zibal_')) {
       return;
     }
 
     const ticketId = startParam.slice('zibal_'.length).trim();
-    if (!ticketId) return;
 
-    // Telegram may open the Mini App in a new WebView after the external
-    // payment browser redirects to the bot. Do not depend on the previous
-    // tab's React state/session storage; route using Telegram's start_param.
-    router.replace(`/zibal/status?ticketId=${encodeURIComponent(ticketId)}`);
+    if (!ticketId) {
+      return;
+    }
+
+    router.replace(
+      `/zibal/status?ticketId=${encodeURIComponent(ticketId)}`,
+    );
   }, [ready, pathname, router]);
 
   if (!ready) {
