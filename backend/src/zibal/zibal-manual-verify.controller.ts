@@ -1,10 +1,10 @@
 import {
   BadRequestException,
   Controller,
+  HttpException,
   Param,
   Post,
   Req,
-  TooManyRequestsException,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { DataSource } from 'typeorm';
@@ -54,18 +54,20 @@ export class ZibalManualVerifyController {
       if (payment.lastVerifyAt) {
         const elapsed = now - payment.lastVerifyAt.getTime();
         if (elapsed < VERIFY_COOLDOWN_MS) {
-          const retryAfterSeconds = Math.max(1, Math.ceil((VERIFY_COOLDOWN_MS - elapsed) / 1000));
-          throw new TooManyRequestsException({
-            message: `برای بررسی مجدد این تراکنش ${retryAfterSeconds} ثانیه صبر کنید.`,
-            retryAfterSeconds,
-          });
+          const retryAfterSeconds = Math.max(
+            1,
+            Math.ceil((VERIFY_COOLDOWN_MS - elapsed) / 1000),
+          );
+          throw new HttpException(
+            {
+              message: `برای بررسی مجدد این تراکنش ${retryAfterSeconds} ثانیه صبر کنید.`,
+              retryAfterSeconds,
+            },
+            429,
+          );
         }
       }
 
-      // A failed gateway result is allowed to be checked again. It is moved
-      // back to PENDING atomically while the verification timestamp is set.
-      // The actual credit operation is still protected by the transaction and
-      // row lock inside ZibalService.settleSuccessfulPayment().
       payment.lastVerifyAt = new Date(now);
       if (payment.status === 'FAILED') payment.status = 'PENDING';
       await manager.save(payment);
