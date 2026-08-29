@@ -7,6 +7,7 @@ declare global {
         initData: string;
 
         initDataUnsafe: {
+          start_param?: string;
           user?: {
             id: number;
             first_name: string;
@@ -25,10 +26,7 @@ declare global {
 
         colorScheme: 'light' | 'dark';
 
-        themeParams: Record<
-          string,
-          string
-        >;
+        themeParams: Record<string, string>;
       };
     };
   }
