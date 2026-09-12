@@ -3,16 +3,57 @@ type ApiErrorPayload = {
   error?: string;
 };
 
+const API_TIMEOUT_MS = 8000;
+const TELEGRAM_INIT_DATA_WAIT_MS = 2500;
+
 function getTelegramInitData(): string | null {
   if (typeof window === 'undefined') return null;
   return window.Telegram?.WebApp?.initData || null;
 }
 
+function waitForTelegramInitData(timeoutMs = TELEGRAM_INIT_DATA_WAIT_MS): Promise<string | null> {
+  const immediate = getTelegramInitData();
+  if (immediate) return Promise.resolve(immediate);
+  if (typeof window === 'undefined') return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    let timer: number | undefined;
+
+    const check = () => {
+      const initData = getTelegramInitData();
+      if (initData || Date.now() - startedAt >= timeoutMs) {
+        if (timer) window.clearTimeout(timer);
+        resolve(initData);
+        return;
+      }
+      timer = window.setTimeout(check, 50);
+    };
+
+    check();
+  });
+}
+
+function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  // Respect an existing caller signal while still enforcing our timeout.
+  if (init?.signal) {
+    if (init.signal.aborted) controller.abort();
+    else init.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => {
+    window.clearTimeout(timeout);
+  });
+}
+
 async function authenticateTelegram(): Promise<boolean> {
-  const initData = getTelegramInitData();
+  const initData = await waitForTelegramInitData();
   if (!initData) return false;
 
-  const response = await fetch('/api/auth/telegram', {
+  const response = await fetchWithTimeout('/api/auth/telegram', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -37,25 +78,50 @@ function getErrorMessage(text: string): string {
   return text;
 }
 
+function getFriendlyRequestError(error: unknown): Error {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return new Error('ارتباط با سرور بیش از حد طول کشید. لطفاً دوباره تلاش کنید.');
+  }
+
+  if (error instanceof TypeError) {
+    return new Error('ارتباط با سرور برقرار نشد. لطفاً اتصال اینترنت را بررسی کنید.');
+  }
+
+  return error instanceof Error ? error : new Error('خطای نامشخص در ارتباط با سرور.');
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const request = () => fetch(`/api/${path}`, {
+  const request = () => fetchWithTimeout(`/api/${path}`, {
     credentials: 'include',
     ...options,
   });
 
-  let response = await request();
+  let response: Response;
+
+  try {
+    response = await request();
+  } catch (error) {
+    throw getFriendlyRequestError(error);
+  }
 
   // `/panel` can be opened directly without visiting `/` first. Recover the
   // session from Telegram initData once, then retry the original request.
   if (response.status === 401 && path !== 'auth/telegram') {
     try {
-      if (await authenticateTelegram()) response = await request();
-    } catch {
-      // Preserve the original authentication error below.
+      if (await authenticateTelegram()) {
+        response = await request();
+      }
+    } catch (error) {
+      throw getFriendlyRequestError(error);
     }
   }
 
-  const text = await response.text();
+  let text: string;
+  try {
+    text = await response.text();
+  } catch (error) {
+    throw getFriendlyRequestError(error);
+  }
 
   if (!response.ok) {
     throw new Error(getErrorMessage(text));
