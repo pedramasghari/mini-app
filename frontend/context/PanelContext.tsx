@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
+import { useTelegram } from '@/components/TelegramProvider';
 import type { Me, Service, Product, Method, Notification } from '@/components/panel/types';
 
 type C = {
@@ -11,6 +12,7 @@ type C = {
   methods: Method[];
   notifications: Notification[];
   loading: boolean;
+  error: string | null;
   realtime: boolean;
   refresh: () => Promise<void>;
   markRead: (id: string) => Promise<void>;
@@ -19,49 +21,70 @@ type C = {
 const PanelContext = createContext<C | null>(null);
 
 export function PanelProvider({ children }: { children: React.ReactNode }) {
+  const { ready: telegramReady } = useTelegram();
   const [me, setMe] = useState<Me | null>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [methods, setMethods] = useState<Method[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [realtime, setRealtime] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
   const connectedOnce = useRef(false);
 
   const refresh = useCallback(async () => {
-    const [m, s, p, pm, n] = await Promise.all([
-      api<Me>('auth/me'),
-      api<Service[]>('services'),
-      api<Product[]>('products'),
-      api<Method[]>('payment-methods'),
-      api<Notification[]>('notifications'),
-    ]);
+    setError(null);
 
-    setMe(m);
-    setServices(s);
-    setProducts(p);
-    setMethods(pm);
-    setNotifications(n);
+    // Authentication is the only hard dependency for the panel. Fetch it
+    // first so the session cookie is available before loading other resources.
+    const currentUser = await api<Me>('auth/me');
+    setMe(currentUser);
     setAuthenticated(true);
+
+    // A single optional endpoint must never keep the whole panel in a loading
+    // state. Render the user immediately and fill each resource independently.
+    const [servicesResult, productsResult, methodsResult, notificationsResult] =
+      await Promise.allSettled([
+        api<Service[]>('services'),
+        api<Product[]>('products'),
+        api<Method[]>('payment-methods'),
+        api<Notification[]>('notifications'),
+      ]);
+
+    if (servicesResult.status === 'fulfilled') setServices(servicesResult.value);
+    else console.error('Failed to load services:', servicesResult.reason);
+
+    if (productsResult.status === 'fulfilled') setProducts(productsResult.value);
+    else console.error('Failed to load products:', productsResult.reason);
+
+    if (methodsResult.status === 'fulfilled') setMethods(methodsResult.value);
+    else console.error('Failed to load payment methods:', methodsResult.reason);
+
+    if (notificationsResult.status === 'fulfilled') setNotifications(notificationsResult.value);
+    else console.error('Failed to load notifications:', notificationsResult.reason);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadPanel = useCallback(async () => {
+    setLoading(true);
 
-    refresh()
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setAuthenticated(false);
-          console.error(error);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => { cancelled = true; };
+    try {
+      await refresh();
+    } catch (error: unknown) {
+      setAuthenticated(false);
+      setMe(null);
+      const message = error instanceof Error ? error.message : 'ورود به حساب انجام نشد.';
+      setError(message);
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
   }, [refresh]);
+
+  useEffect(() => {
+    if (!telegramReady) return;
+    void loadPanel();
+  }, [telegramReady, loadPanel]);
 
   useEffect(() => {
     if (!authenticated) return;
@@ -134,8 +157,8 @@ export function PanelProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ me, services, products, methods, notifications, loading, realtime, refresh, markRead }),
-    [me, services, products, methods, notifications, loading, realtime, refresh, markRead],
+    () => ({ me, services, products, methods, notifications, loading, error, realtime, refresh: loadPanel, markRead }),
+    [me, services, products, methods, notifications, loading, error, realtime, loadPanel, markRead],
   );
 
   return <PanelContext.Provider value={value}>{children}</PanelContext.Provider>;
