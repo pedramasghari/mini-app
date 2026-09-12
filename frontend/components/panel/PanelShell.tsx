@@ -6,15 +6,42 @@ import PanelView from "./panelView";
 import { AnimatePresence, motion } from "framer-motion";
 
 export default function PanelShell() {
-  const { me } = usePanel();
+  const { me, loading, error, refresh } = usePanel();
+
+  if (loading && !me)
+    return (
+      <main
+        dir="rtl"
+        className="grid min-h-[100dvh] place-items-center overflow-x-hidden bg-[#070b14] px-4 text-white"
+      >
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="h-7 w-7 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+          <span className="text-sm text-white/70">در حال ورود به حساب…</span>
+        </div>
+      </main>
+    );
 
   if (!me)
     return (
       <main
         dir="rtl"
-        className="grid min-h-screen place-items-center overflow-x-hidden bg-[#070b14] px-4 text-white"
+        className="grid min-h-[100dvh] place-items-center overflow-x-hidden bg-[#070b14] px-4 text-white"
       >
-        در حال بارگذاری…
+        <div className="flex max-w-sm flex-col items-center gap-4 text-center">
+          <div className="rounded-2xl border border-red-400/20 bg-red-400/10 px-5 py-4">
+            <p className="text-sm font-medium text-red-200">ورود به حساب انجام نشد</p>
+            <p className="mt-2 text-xs leading-6 text-white/60">
+              {error || 'ارتباط با حساب کاربری برقرار نشد.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refresh().catch(() => undefined)}
+            className="rounded-xl bg-white px-5 py-2.5 text-sm font-medium text-[#070b14] transition hover:bg-white/90"
+          >
+            تلاش دوباره
+          </button>
+        </div>
       </main>
     );
 
@@ -42,7 +69,7 @@ export default function PanelShell() {
           transition={{ duration: 0.2 }}
           className="relative inset-0 h-full w-full overflow-hidden"
         >
-          <PanelView me={me} />,
+          <PanelView me={me} />
         </motion.div>
       </AnimatePresence>
     </main>
